@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"bufio"
+	"debug/elf"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -72,20 +73,99 @@ func (a *Analyzer) resolveDependencies(fileSet map[string]struct{}) []string {
 }
 
 func (a *Analyzer) resolveSymlinks(file string, resolved map[string]struct{}) {
-	target, err := filepath.EvalSymlinks(file)
-	if err == nil && target != file {
+	if _, err := os.Lstat(file); err != nil {
+		return
+	}
+	
+	target, err := os.Readlink(file)
+	if err != nil {
+		return
+	}
+	
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(file), target)
+	}
+	
+	target = filepath.Clean(target)
+	if target != file {
 		resolved[target] = struct{}{}
+		a.resolveSymlinks(target, resolved)
 	}
 }
 
 func (a *Analyzer) isELFBinary(file string) bool {
-	return strings.HasSuffix(file, ".so") || 
-		   strings.Contains(file, ".so.") ||
-		   (!strings.Contains(file, ".") && strings.HasPrefix(file, "/bin/")) ||
-		   (!strings.Contains(file, ".") && strings.HasPrefix(file, "/usr/bin/"))
+	f, err := os.Open(file)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	
+	_, err = elf.NewFile(f)
+	return err == nil
 }
 
 func (a *Analyzer) resolveELFDependencies(file string, resolved map[string]struct{}) {
+	f, err := os.Open(file)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	
+	elfFile, err := elf.NewFile(f)
+	if err != nil {
+		return
+	}
+	defer elfFile.Close()
+	
+	libs, err := elfFile.ImportedLibraries()
+	if err != nil {
+		return
+	}
+	
+	ldPaths := []string{
+		"/lib",
+		"/lib64",
+		"/usr/lib",
+		"/usr/lib64",
+		"/lib/x86_64-linux-gnu",
+		"/usr/lib/x86_64-linux-gnu",
+		"/lib/aarch64-linux-gnu",
+		"/usr/lib/aarch64-linux-gnu",
+	}
+	
+	for _, lib := range libs {
+		for _, ldPath := range ldPaths {
+			libPath := filepath.Join(ldPath, lib)
+			if _, err := os.Stat(libPath); err == nil {
+				resolved[libPath] = struct{}{}
+				a.resolveSymlinks(libPath, resolved)
+				a.resolveELFDependencies(libPath, resolved)
+				break
+			}
+		}
+	}
+	
+	interpreter := a.getELFInterpreter(elfFile)
+	if interpreter != "" {
+		resolved[interpreter] = struct{}{}
+		a.resolveSymlinks(interpreter, resolved)
+	}
+}
+
+func (a *Analyzer) getELFInterpreter(elfFile *elf.File) string {
+	for _, prog := range elfFile.Progs {
+		if prog.Type == elf.PT_INTERP {
+			interp := make([]byte, prog.Filesz)
+			if _, err := prog.ReadAt(interp, 0); err == nil {
+				interpStr := string(interp)
+				if idx := strings.IndexByte(interpStr, 0); idx != -1 {
+					interpStr = interpStr[:idx]
+				}
+				return interpStr
+			}
+		}
+	}
+	return ""
 }
 
 func (a *Analyzer) addSafelistFiles(resolved map[string]struct{}) {

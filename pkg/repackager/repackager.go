@@ -1,6 +1,7 @@
 package repackager
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -11,6 +12,21 @@ import (
 )
 
 type Repackager struct{}
+
+type ImageMetadata struct {
+	Cmd        []string          `json:"Cmd"`
+	Entrypoint []string          `json:"Entrypoint"`
+	Env        []string          `json:"Env"`
+	WorkingDir string            `json:"WorkingDir"`
+	User       string            `json:"User"`
+	ExposedPorts map[string]struct{} `json:"ExposedPorts"`
+	Volumes    map[string]struct{} `json:"Volumes"`
+	Labels     map[string]string `json:"Labels"`
+}
+
+type ImageInspect struct {
+	Config ImageMetadata `json:"Config"`
+}
 
 func NewRepackager() *Repackager {
 	return &Repackager{}
@@ -60,7 +76,12 @@ func (r *Repackager) Repackage(sourceImage, outputImage string, manifest *analyz
 }
 
 func (r *Repackager) copyFiles(containerName string, files []string, destDir string) error {
+	successCount := 0
 	for _, file := range files {
+		if file == "" || file == "/" {
+			continue
+		}
+		
 		destPath := filepath.Join(destDir, file)
 		destFileDir := filepath.Dir(destPath)
 		
@@ -70,49 +91,90 @@ func (r *Repackager) copyFiles(containerName string, files []string, destDir str
 
 		srcPath := fmt.Sprintf("%s:%s", containerName, file)
 		cmd := exec.Command("docker", "cp", srcPath, destPath)
-		cmd.Run()
+		if err := cmd.Run(); err == nil {
+			successCount++
+		}
+	}
+	
+	if successCount == 0 {
+		return fmt.Errorf("failed to copy any files from container")
 	}
 	
 	return nil
 }
 
-func (r *Repackager) extractMetadata(image string) (map[string]string, error) {
-	cmd := exec.Command("docker", "inspect", image, "--format", "{{.Config.Cmd}}|{{.Config.Entrypoint}}|{{.Config.WorkingDir}}|{{.Config.User}}")
+func (r *Repackager) extractMetadata(image string) (*ImageMetadata, error) {
+	cmd := exec.Command("docker", "inspect", image)
 	output, err := cmd.Output()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to inspect image: %w", err)
 	}
 
-	parts := strings.Split(strings.TrimSpace(string(output)), "|")
-	metadata := map[string]string{
-		"cmd":        parts[0],
-		"entrypoint": parts[1],
-		"workdir":    parts[2],
-		"user":       parts[3],
+	var inspectData []ImageInspect
+	if err := json.Unmarshal(output, &inspectData); err != nil {
+		return nil, fmt.Errorf("failed to parse inspect output: %w", err)
 	}
 
-	return metadata, nil
+	if len(inspectData) == 0 {
+		return nil, fmt.Errorf("no inspect data returned for image")
+	}
+
+	return &inspectData[0].Config, nil
 }
 
-func (r *Repackager) generateDockerfile(path string, metadata map[string]string) error {
-	content := "FROM scratch\n\n"
-	content += "COPY files/ /\n\n"
-
-	if metadata["workdir"] != "" {
-		content += fmt.Sprintf("WORKDIR %s\n", metadata["workdir"])
+func (r *Repackager) generateDockerfile(path string, metadata *ImageMetadata) error {
+	var content strings.Builder
+	
+	content.WriteString("FROM scratch\n\n")
+	
+	content.WriteString("COPY files/ /\n\n")
+	
+	if len(metadata.Env) > 0 {
+		for _, env := range metadata.Env {
+			content.WriteString(fmt.Sprintf("ENV %s\n", env))
+		}
+		content.WriteString("\n")
+	}
+	
+	if len(metadata.Labels) > 0 {
+		for key, value := range metadata.Labels {
+			content.WriteString(fmt.Sprintf("LABEL %s=\"%s\"\n", key, value))
+		}
+		content.WriteString("\n")
+	}
+	
+	if len(metadata.ExposedPorts) > 0 {
+		ports := make([]string, 0, len(metadata.ExposedPorts))
+		for port := range metadata.ExposedPorts {
+			ports = append(ports, port)
+		}
+		content.WriteString(fmt.Sprintf("EXPOSE %s\n\n", strings.Join(ports, " ")))
+	}
+	
+	if len(metadata.Volumes) > 0 {
+		for volume := range metadata.Volumes {
+			content.WriteString(fmt.Sprintf("VOLUME [\"%s\"]\n", volume))
+		}
+		content.WriteString("\n")
+	}
+	
+	if metadata.WorkingDir != "" {
+		content.WriteString(fmt.Sprintf("WORKDIR %s\n\n", metadata.WorkingDir))
+	}
+	
+	if metadata.User != "" {
+		content.WriteString(fmt.Sprintf("USER %s\n\n", metadata.User))
+	}
+	
+	if len(metadata.Entrypoint) > 0 {
+		entrypointJSON, _ := json.Marshal(metadata.Entrypoint)
+		content.WriteString(fmt.Sprintf("ENTRYPOINT %s\n", string(entrypointJSON)))
+	}
+	
+	if len(metadata.Cmd) > 0 {
+		cmdJSON, _ := json.Marshal(metadata.Cmd)
+		content.WriteString(fmt.Sprintf("CMD %s\n", string(cmdJSON)))
 	}
 
-	if metadata["user"] != "" {
-		content += fmt.Sprintf("USER %s\n", metadata["user"])
-	}
-
-	if metadata["entrypoint"] != "" && metadata["entrypoint"] != "[]" {
-		content += fmt.Sprintf("ENTRYPOINT %s\n", metadata["entrypoint"])
-	}
-
-	if metadata["cmd"] != "" && metadata["cmd"] != "[]" {
-		content += fmt.Sprintf("CMD %s\n", metadata["cmd"])
-	}
-
-	return os.WriteFile(path, []byte(content), 0644)
+	return os.WriteFile(path, []byte(content.String()), 0644)
 }
