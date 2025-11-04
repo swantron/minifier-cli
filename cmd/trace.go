@@ -1,0 +1,89 @@
+package cmd
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/spf13/cobra"
+	"github.com/swantron/minifier-cli/pkg/session"
+	"github.com/swantron/minifier-cli/pkg/tracer"
+)
+
+var traceCmd = &cobra.Command{
+	Use:   "trace",
+	Short: "Manage trace sessions",
+	Long:  `Start and stop eBPF tracing sessions for containers.`,
+}
+
+var traceStartCmd = &cobra.Command{
+	Use:   "start --image <image:tag> --name <session-name> [docker-run-args...]",
+	Short: "Start a trace session",
+	Long: `Start a container with eBPF tracing enabled. The container runs with its default
+ENTRYPOINT while file access is traced and logged.`,
+	Run: runTraceStart,
+}
+
+var traceStopCmd = &cobra.Command{
+	Use:   "stop --name <session-name>",
+	Short: "Stop a trace session",
+	Long:  `Stop the eBPF tracer and the associated container, finalizing the trace log.`,
+	Run:   runTraceStop,
+}
+
+var (
+	imageName   string
+	sessionName string
+	dockerArgs  []string
+)
+
+func init() {
+	traceStartCmd.Flags().StringVar(&imageName, "image", "", "Container image to trace (required)")
+	traceStartCmd.Flags().StringVar(&sessionName, "name", "", "Session name for this trace (required)")
+	traceStartCmd.MarkFlagRequired("image")
+	traceStartCmd.MarkFlagRequired("name")
+
+	traceStopCmd.Flags().StringVar(&sessionName, "name", "", "Session name to stop (required)")
+	traceStopCmd.MarkFlagRequired("name")
+
+	traceCmd.AddCommand(traceStartCmd)
+	traceCmd.AddCommand(traceStopCmd)
+}
+
+func runTraceStart(cmd *cobra.Command, args []string) {
+	dockerArgs = args
+
+	t := tracer.NewTracer()
+	sess, err := t.Start(imageName, sessionName, dockerArgs)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error starting trace: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := session.Save(sess); err != nil {
+		fmt.Fprintf(os.Stderr, "Error saving session: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Container %s started for trace session '%s'\n", sess.ContainerID, sess.Name)
+	fmt.Printf("Trace log: %s\n", sess.LogFile)
+}
+
+func runTraceStop(cmd *cobra.Command, args []string) {
+	sess, err := session.Load(sessionName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error loading session: %v\n", err)
+		os.Exit(1)
+	}
+
+	t := tracer.NewTracer()
+	if err := t.Stop(sess); err != nil {
+		fmt.Fprintf(os.Stderr, "Error stopping trace: %v\n", err)
+		os.Exit(1)
+	}
+
+	if err := session.Delete(sessionName); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: could not delete session file: %v\n", err)
+	}
+
+	fmt.Printf("Trace session '%s' stopped. Log file at %s\n", sess.Name, sess.LogFile)
+}
