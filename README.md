@@ -4,9 +4,9 @@ A tool to create minimal container images by tracing runtime file access pattern
 
 ## Overview
 
-`minifier-cli` is an open-source (Apache 2.0) tool written in Go that helps reduce container image sizes by:
+`minifier-cli` is a Go-based tool that helps reduce container image sizes by:
 
-1. **Tracing** - Running your container with eBPF tracing to capture all file accesses
+1. **Tracing** - Running your container with file access monitoring to capture all accessed files
 2. **Analyzing** - Identifying dependencies and required files based on trace data
 3. **Repackaging** - Building a new minimal image containing only what's needed
 
@@ -14,14 +14,10 @@ This is particularly useful for hardening appliances like `datadog-agent` and ot
 
 ## Installation
 
-### Download Binary
-
-Download the latest release for your platform from the [releases page](https://github.com/swantron/minifier-cli/releases).
-
 ### Build from Source
 
 ```bash
-git clone https://github.com/swantron/minifier-cli.git
+git clone <repository-url>
 cd minifier-cli
 go build -o minifier-cli .
 ```
@@ -128,11 +124,11 @@ minifier-cli/
 
 ## License
 
-Apache License 2.0 - See [LICENSE](LICENSE) file for details.
+Proprietary - All rights reserved.
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+This is a private project.
 
 ## Testing
 
