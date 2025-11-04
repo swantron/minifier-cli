@@ -133,3 +133,27 @@ Apache License 2.0 - See [LICENSE](LICENSE) file for details.
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Testing
+
+### Quick Test
+
+Run the automated demo:
+
+```bash
+./demo.sh
+```
+
+Or run the full test suite:
+
+```bash
+./test.sh
+```
+
+See [TESTING.md](TESTING.md) for detailed testing instructions and scenarios.
+
+### Run Unit Tests
+
+```bash
+go test ./...
+```
