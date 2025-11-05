@@ -68,7 +68,7 @@ func runTraceStart(cmd *cobra.Command, args []string) {
 	fmt.Printf("Trace log: %s\n", sess.LogFile)
 	fmt.Printf("\nTracer is running in the background. Use 'trace stop --name %s' to stop.\n", sess.Name)
 	fmt.Printf("Or press Ctrl+C to stop tracing (container will keep running).\n")
-	
+
 	// Keep process alive to let goroutine run
 	// User can Ctrl+C to stop, or use trace stop command
 	select {}

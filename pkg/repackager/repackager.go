@@ -14,14 +14,14 @@ import (
 type Repackager struct{}
 
 type ImageMetadata struct {
-	Cmd        []string          `json:"Cmd"`
-	Entrypoint []string          `json:"Entrypoint"`
-	Env        []string          `json:"Env"`
-	WorkingDir string            `json:"WorkingDir"`
-	User       string            `json:"User"`
+	Cmd          []string            `json:"Cmd"`
+	Entrypoint   []string            `json:"Entrypoint"`
+	Env          []string            `json:"Env"`
+	WorkingDir   string              `json:"WorkingDir"`
+	User         string              `json:"User"`
 	ExposedPorts map[string]struct{} `json:"ExposedPorts"`
-	Volumes    map[string]struct{} `json:"Volumes"`
-	Labels     map[string]string `json:"Labels"`
+	Volumes      map[string]struct{} `json:"Volumes"`
+	Labels       map[string]string   `json:"Labels"`
 }
 
 type ImageInspect struct {
@@ -40,7 +40,7 @@ func (r *Repackager) Repackage(sourceImage, outputImage string, manifest *analyz
 	defer os.RemoveAll(tempDir)
 
 	containerName := fmt.Sprintf("minifier-temp-%d", os.Getpid())
-	
+
 	cmd := exec.Command("docker", "create", "--name", containerName, sourceImage)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to create temporary container: %w", err)
@@ -81,10 +81,10 @@ func (r *Repackager) copyFiles(containerName string, files []string, destDir str
 		if file == "" || file == "/" {
 			continue
 		}
-		
+
 		destPath := filepath.Join(destDir, file)
 		destFileDir := filepath.Dir(destPath)
-		
+
 		if err := os.MkdirAll(destFileDir, 0755); err != nil {
 			continue
 		}
@@ -95,11 +95,11 @@ func (r *Repackager) copyFiles(containerName string, files []string, destDir str
 			successCount++
 		}
 	}
-	
+
 	if successCount == 0 {
 		return fmt.Errorf("failed to copy any files from container")
 	}
-	
+
 	return nil
 }
 
@@ -124,25 +124,25 @@ func (r *Repackager) extractMetadata(image string) (*ImageMetadata, error) {
 
 func (r *Repackager) generateDockerfile(path string, metadata *ImageMetadata) error {
 	var content strings.Builder
-	
+
 	content.WriteString("FROM scratch\n\n")
-	
+
 	content.WriteString("COPY files/ /\n\n")
-	
+
 	if len(metadata.Env) > 0 {
 		for _, env := range metadata.Env {
 			content.WriteString(fmt.Sprintf("ENV %s\n", env))
 		}
 		content.WriteString("\n")
 	}
-	
+
 	if len(metadata.Labels) > 0 {
 		for key, value := range metadata.Labels {
 			content.WriteString(fmt.Sprintf("LABEL %s=\"%s\"\n", key, value))
 		}
 		content.WriteString("\n")
 	}
-	
+
 	if len(metadata.ExposedPorts) > 0 {
 		ports := make([]string, 0, len(metadata.ExposedPorts))
 		for port := range metadata.ExposedPorts {
@@ -150,27 +150,27 @@ func (r *Repackager) generateDockerfile(path string, metadata *ImageMetadata) er
 		}
 		content.WriteString(fmt.Sprintf("EXPOSE %s\n\n", strings.Join(ports, " ")))
 	}
-	
+
 	if len(metadata.Volumes) > 0 {
 		for volume := range metadata.Volumes {
 			content.WriteString(fmt.Sprintf("VOLUME [\"%s\"]\n", volume))
 		}
 		content.WriteString("\n")
 	}
-	
+
 	if metadata.WorkingDir != "" {
 		content.WriteString(fmt.Sprintf("WORKDIR %s\n\n", metadata.WorkingDir))
 	}
-	
+
 	if metadata.User != "" {
 		content.WriteString(fmt.Sprintf("USER %s\n\n", metadata.User))
 	}
-	
+
 	if len(metadata.Entrypoint) > 0 {
 		entrypointJSON, _ := json.Marshal(metadata.Entrypoint)
 		content.WriteString(fmt.Sprintf("ENTRYPOINT %s\n", string(entrypointJSON)))
 	}
-	
+
 	if len(metadata.Cmd) > 0 {
 		cmdJSON, _ := json.Marshal(metadata.Cmd)
 		content.WriteString(fmt.Sprintf("CMD %s\n", string(cmdJSON)))

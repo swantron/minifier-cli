@@ -52,7 +52,7 @@ func TestSessionDelete(t *testing.T) {
 	}
 
 	Save(sess)
-	
+
 	err := Delete("delete-test")
 	if err != nil {
 		t.Fatalf("Failed to delete session: %v", err)

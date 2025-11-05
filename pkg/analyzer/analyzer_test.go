@@ -26,7 +26,7 @@ func TestAnalyzerBasic(t *testing.T) {
 	if len(manifest.Files) == 0 {
 		t.Fatal("Expected at least some files in manifest")
 	}
-	
+
 	// Should have original files plus safelist
 	hasOriginalFile := false
 	for _, file := range manifest.Files {
@@ -35,7 +35,7 @@ func TestAnalyzerBasic(t *testing.T) {
 			break
 		}
 	}
-	
+
 	if !hasOriginalFile {
 		t.Error("Expected to find original files from trace log")
 	}
@@ -114,19 +114,19 @@ func TestIsELFBinary(t *testing.T) {
 		if _, err := os.Stat(path); err == nil {
 			if a.isELFBinary(path) {
 				foundELF = true
-				
+
 				// Verify it's actually an ELF file
 				f, err := os.Open(path)
 				if err != nil {
 					t.Fatalf("Failed to open %s: %v", path, err)
 				}
 				defer f.Close()
-				
+
 				_, err = elf.NewFile(f)
 				if err != nil {
 					t.Errorf("isELFBinary returned true for %s, but elf.NewFile failed: %v", path, err)
 				}
-				
+
 				break
 			}
 		}
@@ -152,7 +152,7 @@ func TestIsELFBinaryNonELF(t *testing.T) {
 	if a.isELFBinary(textFile) {
 		t.Error("Text file should not be detected as ELF binary")
 	}
-	
+
 	// Test with non-existent file
 	if a.isELFBinary("/nonexistent/file") {
 		t.Error("Non-existent file should not be detected as ELF binary")
@@ -164,7 +164,7 @@ func TestResolveSymlinks(t *testing.T) {
 	resolved := make(map[string]struct{})
 
 	tempDir := t.TempDir()
-	
+
 	// Create a real file
 	target := filepath.Join(tempDir, "target.txt")
 	if err := os.WriteFile(target, []byte("content"), 0644); err != nil {
@@ -204,7 +204,7 @@ func TestResolveSymlinksNonExistent(t *testing.T) {
 
 	// Should not crash on non-existent file
 	a.resolveSymlinks("/nonexistent/file", resolved)
-	
+
 	// resolved should remain empty
 	if len(resolved) > 0 {
 		t.Error("Should not add non-existent files to resolved map")
@@ -217,16 +217,16 @@ func TestResolveELFDependencies(t *testing.T) {
 
 	// Test with a real ELF binary if available
 	testBinaries := []string{"/bin/ls", "/bin/sh", "/usr/bin/env"}
-	
+
 	for _, binary := range testBinaries {
 		if fileExists(binary) && a.isELFBinary(binary) {
 			a.resolveELFDependencies(binary, resolved)
-			
+
 			// Should have found at least the binary itself and some libraries
 			if len(resolved) == 0 {
 				t.Errorf("Expected to find dependencies for %s", binary)
 			}
-			
+
 			// Check for common libraries
 			hasLibc := false
 			for file := range resolved {
@@ -235,12 +235,12 @@ func TestResolveELFDependencies(t *testing.T) {
 					break
 				}
 			}
-			
+
 			if !hasLibc {
 				t.Logf("Warning: Did not find libc or ld in dependencies for %s", binary)
 				t.Logf("Resolved files: %v", resolved)
 			}
-			
+
 			break
 		}
 	}
@@ -251,7 +251,7 @@ func TestGetELFInterpreter(t *testing.T) {
 
 	// Test with a real ELF binary
 	testBinaries := []string{"/bin/ls", "/bin/sh"}
-	
+
 	for _, binary := range testBinaries {
 		if fileExists(binary) {
 			f, err := os.Open(binary)
@@ -259,28 +259,28 @@ func TestGetELFInterpreter(t *testing.T) {
 				continue
 			}
 			defer f.Close()
-			
+
 			elfFile, err := elf.NewFile(f)
 			if err != nil {
 				continue
 			}
 			defer elfFile.Close()
-			
+
 			interp := a.getELFInterpreter(elfFile)
-			
+
 			// Most ELF binaries have an interpreter
 			if interp != "" {
 				// Should be a valid path
 				if !strings.HasPrefix(interp, "/") {
 					t.Errorf("Interpreter path should be absolute, got: %s", interp)
 				}
-				
+
 				// Common interpreters
 				if !strings.Contains(interp, "ld-") && !strings.Contains(interp, "ld.so") {
 					t.Logf("Warning: Unusual interpreter path: %s", interp)
 				}
 			}
-			
+
 			break
 		}
 	}
@@ -312,7 +312,7 @@ func TestAddSafelistFiles(t *testing.T) {
 
 func TestResolveDependencies(t *testing.T) {
 	a := NewAnalyzer()
-	
+
 	fileSet := map[string]struct{}{
 		"/etc/passwd": {},
 		"/bin/sh":     {},

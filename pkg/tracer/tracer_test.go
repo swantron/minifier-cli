@@ -13,18 +13,18 @@ func TestTracerGetContainerPID(t *testing.T) {
 	}
 
 	tracer := NewTracer()
-	
+
 	containerID, err := createTestContainer("alpine:latest")
 	if err != nil {
 		t.Fatalf("Failed to create test container: %v", err)
 	}
 	defer cleanupContainer(containerID)
-	
+
 	pid, err := tracer.getContainerPID(containerID)
 	if err != nil {
 		t.Fatalf("Failed to get container PID: %v", err)
 	}
-	
+
 	if pid <= 0 {
 		t.Errorf("Expected positive PID, got %d", pid)
 	}
@@ -36,23 +36,23 @@ func TestTracerIsContainerRunning(t *testing.T) {
 	}
 
 	tracer := NewTracer()
-	
+
 	// Test with running container
 	containerID, err := createTestContainer("alpine:latest")
 	if err != nil {
 		t.Fatalf("Failed to create test container: %v", err)
 	}
 	defer cleanupContainer(containerID)
-	
+
 	running, err := tracer.isContainerRunning(containerID)
 	if err != nil {
 		t.Fatalf("Failed to check container status: %v", err)
 	}
-	
+
 	if !running {
 		t.Error("Container should be running")
 	}
-	
+
 	// Test with non-existent container
 	running, err = tracer.isContainerRunning("nonexistent")
 	if err == nil {
@@ -66,22 +66,22 @@ func TestTracerCaptureBasicFiles(t *testing.T) {
 	}
 
 	tracer := NewTracer()
-	
+
 	containerID, err := createTestContainer("alpine:latest")
 	if err != nil {
 		t.Fatalf("Failed to create test container: %v", err)
 	}
 	defer cleanupContainer(containerID)
-	
+
 	files, err := tracer.captureBasicFiles(containerID)
 	if err != nil {
 		t.Fatalf("Failed to capture basic files: %v", err)
 	}
-	
+
 	if len(files) == 0 {
 		t.Error("Expected at least one file")
 	}
-	
+
 	// Check for common files
 	hasCommonFile := false
 	for _, file := range files {
@@ -90,7 +90,7 @@ func TestTracerCaptureBasicFiles(t *testing.T) {
 			break
 		}
 	}
-	
+
 	if !hasCommonFile {
 		t.Error("Expected to find at least one common file like /bin/sh or /etc/passwd")
 	}
@@ -108,13 +108,13 @@ func TestTracerReadContainerSymlink(t *testing.T) {
 	}
 
 	tracer := NewTracer()
-	
+
 	containerID, err := createTestContainer("alpine:latest")
 	if err != nil {
 		t.Fatalf("Failed to create test container: %v", err)
 	}
 	defer cleanupContainer(containerID)
-	
+
 	// Just verify the function doesn't crash with invalid input
 	_, err = tracer.readContainerSymlink(containerID, "/nonexistent")
 	// Error is expected, just verify it doesn't panic

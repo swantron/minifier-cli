@@ -28,7 +28,7 @@ func (a *Analyzer) Analyze(logFilePath string) (*FileManifest, error) {
 
 	fileSet := make(map[string]struct{})
 	scanner := bufio.NewScanner(file)
-	
+
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line != "" {
@@ -51,24 +51,24 @@ func (a *Analyzer) Analyze(logFilePath string) (*FileManifest, error) {
 
 func (a *Analyzer) resolveDependencies(fileSet map[string]struct{}) []string {
 	resolved := make(map[string]struct{})
-	
+
 	for file := range fileSet {
 		resolved[file] = struct{}{}
-		
+
 		a.resolveSymlinks(file, resolved)
-		
+
 		if a.isELFBinary(file) {
 			a.resolveELFDependencies(file, resolved)
 		}
 	}
-	
+
 	a.addSafelistFiles(resolved)
-	
+
 	files := make([]string, 0, len(resolved))
 	for file := range resolved {
 		files = append(files, file)
 	}
-	
+
 	return files
 }
 
@@ -76,16 +76,16 @@ func (a *Analyzer) resolveSymlinks(file string, resolved map[string]struct{}) {
 	if _, err := os.Lstat(file); err != nil {
 		return
 	}
-	
+
 	target, err := os.Readlink(file)
 	if err != nil {
 		return
 	}
-	
+
 	if !filepath.IsAbs(target) {
 		target = filepath.Join(filepath.Dir(file), target)
 	}
-	
+
 	target = filepath.Clean(target)
 	if target != file {
 		resolved[target] = struct{}{}
@@ -99,7 +99,7 @@ func (a *Analyzer) isELFBinary(file string) bool {
 		return false
 	}
 	defer f.Close()
-	
+
 	_, err = elf.NewFile(f)
 	return err == nil
 }
@@ -110,18 +110,18 @@ func (a *Analyzer) resolveELFDependencies(file string, resolved map[string]struc
 		return
 	}
 	defer f.Close()
-	
+
 	elfFile, err := elf.NewFile(f)
 	if err != nil {
 		return
 	}
 	defer elfFile.Close()
-	
+
 	libs, err := elfFile.ImportedLibraries()
 	if err != nil {
 		return
 	}
-	
+
 	ldPaths := []string{
 		"/lib",
 		"/lib64",
@@ -132,7 +132,7 @@ func (a *Analyzer) resolveELFDependencies(file string, resolved map[string]struc
 		"/lib/aarch64-linux-gnu",
 		"/usr/lib/aarch64-linux-gnu",
 	}
-	
+
 	for _, lib := range libs {
 		for _, ldPath := range ldPaths {
 			libPath := filepath.Join(ldPath, lib)
@@ -144,7 +144,7 @@ func (a *Analyzer) resolveELFDependencies(file string, resolved map[string]struc
 			}
 		}
 	}
-	
+
 	interpreter := a.getELFInterpreter(elfFile)
 	if interpreter != "" {
 		resolved[interpreter] = struct{}{}
@@ -180,7 +180,7 @@ func (a *Analyzer) addSafelistFiles(resolved map[string]struct{}) {
 		"/lib/x86_64-linux-gnu/libpthread.so.0",
 		"/lib64/ld-linux-x86-64.so.2",
 	}
-	
+
 	for _, file := range safelistFiles {
 		resolved[file] = struct{}{}
 	}

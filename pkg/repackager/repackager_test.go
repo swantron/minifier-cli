@@ -17,10 +17,10 @@ func TestExtractMetadata(t *testing.T) {
 	}
 
 	r := NewRepackager()
-	
+
 	// Pull alpine to ensure it exists
 	exec.Command("docker", "pull", "alpine:latest").Run()
-	
+
 	// Use a real image that should be available
 	metadata, err := r.extractMetadata("alpine:latest")
 	if err != nil {
@@ -48,7 +48,7 @@ func TestExtractMetadataInvalidImage(t *testing.T) {
 	}
 
 	r := NewRepackager()
-	
+
 	_, err := r.extractMetadata("nonexistent-image:doesnotexist")
 	if err == nil {
 		t.Error("Expected error for non-existent image")
@@ -57,7 +57,7 @@ func TestExtractMetadataInvalidImage(t *testing.T) {
 
 func TestGenerateDockerfile(t *testing.T) {
 	r := NewRepackager()
-	
+
 	metadata := &ImageMetadata{
 		Env:        []string{"PATH=/usr/bin", "HOME=/root"},
 		Cmd:        []string{"/bin/sh"},
@@ -126,7 +126,7 @@ func TestGenerateDockerfile(t *testing.T) {
 
 func TestGenerateDockerfileMinimal(t *testing.T) {
 	r := NewRepackager()
-	
+
 	// Minimal metadata
 	metadata := &ImageMetadata{
 		Cmd: []string{"/bin/sh"},
@@ -158,9 +158,9 @@ func TestGenerateDockerfileMinimal(t *testing.T) {
 
 func TestCopyFilesEmptyList(t *testing.T) {
 	r := NewRepackager()
-	
+
 	tempDir := t.TempDir()
-	
+
 	// Should handle empty file list
 	err := r.copyFiles("nonexistent", []string{}, tempDir)
 	if err == nil {
@@ -174,10 +174,10 @@ func TestCopyFilesInvalidContainer(t *testing.T) {
 	}
 
 	r := NewRepackager()
-	
+
 	tempDir := t.TempDir()
 	files := []string{"/bin/sh"}
-	
+
 	err := r.copyFiles("nonexistent-container", files, tempDir)
 	if err == nil {
 		t.Error("Expected error for non-existent container")
@@ -188,13 +188,13 @@ func TestRepackageIntegration(t *testing.T) {
 	// This is a full integration test
 	// It requires Docker and creates actual containers/images
 	t.Skip("Integration test - requires Docker and creates images")
-	
+
 	if !isDockerAvailable() {
 		t.Skip("Docker not available")
 	}
 
 	r := NewRepackager()
-	
+
 	manifest := &analyzer.FileManifest{
 		Files: []string{
 			"/bin/sh",
