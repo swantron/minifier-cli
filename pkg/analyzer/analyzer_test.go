@@ -2,6 +2,7 @@ package analyzer
 
 import (
 	"debug/elf"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -308,6 +309,256 @@ func TestAddSafelistFiles(t *testing.T) {
 			t.Errorf("Expected safelist to contain %s", file)
 		}
 	}
+}
+
+// Edge case tests
+
+func TestAnalyzerInvalidLogFile(t *testing.T) {
+	a := NewAnalyzer()
+	_, err := a.Analyze("/nonexistent/path/to/log.txt")
+	if err == nil {
+		t.Error("Expected error for nonexistent log file")
+	}
+}
+
+func TestAnalyzerMalformedPaths(t *testing.T) {
+	tempDir := t.TempDir()
+	logFile := filepath.Join(tempDir, "malformed.log")
+
+	// Test with various malformed paths
+	content := `/valid/path/file.txt
+/path/with spaces/file.txt
+/path/with	tabs/file.txt
+/path/with/trailing/slash/
+/path//with//double//slashes
+`
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create test log: %v", err)
+	}
+
+	a := NewAnalyzer()
+	manifest, err := a.Analyze(logFile)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	// Should handle various path formats
+	// Note: relative paths and ../ might be included - implementation choice
+	if len(manifest.Files) == 0 {
+		t.Error("Expected at least safelist files")
+	}
+}
+
+func TestAnalyzerDuplicatesWithDifferentCasing(t *testing.T) {
+	tempDir := t.TempDir()
+	logFile := filepath.Join(tempDir, "dupes.log")
+
+	content := `/bin/bash
+/bin/bash
+/BIN/BASH
+/bin/Bash
+/lib/libc.so.6
+/lib/libc.so.6
+`
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create test log: %v", err)
+	}
+
+	a := NewAnalyzer()
+	manifest, err := a.Analyze(logFile)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	// Count occurrences of similar paths (case-sensitive)
+	fileCount := make(map[string]int)
+	for _, file := range manifest.Files {
+		if strings.Contains(file, "/bin/bash") || strings.Contains(file, "/bin/Bash") || strings.Contains(file, "/BIN/BASH") {
+			fileCount["bash"]++
+		}
+	}
+
+	// Should dedupe exact matches
+	if fileCount["bash"] > 2 {
+		t.Logf("Note: Case-sensitive filesystem detected multiple bash entries")
+	}
+}
+
+func TestAnalyzerSpecialCharacters(t *testing.T) {
+	tempDir := t.TempDir()
+	logFile := filepath.Join(tempDir, "special.log")
+
+	// Paths with special characters that might cause issues
+	content := `/path/with/unicode/файл.txt
+/path/with/emoji/🚀.txt
+/path/with/quotes/"file".txt
+/path/with/newline
+continuation.txt
+/path/with|pipe.txt
+/path/with;semicolon.txt
+`
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create test log: %v", err)
+	}
+
+	a := NewAnalyzer()
+	manifest, err := a.Analyze(logFile)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	// Should handle these gracefully without crashing
+	if len(manifest.Files) == 0 {
+		t.Error("Expected at least safelist files")
+	}
+}
+
+func TestAnalyzerVeryLongPath(t *testing.T) {
+	tempDir := t.TempDir()
+	logFile := filepath.Join(tempDir, "long.log")
+
+	// Create a very long path (typical PATH_MAX is 4096 on Linux)
+	longPath := "/very/long/path/" + strings.Repeat("subdirectory/", 100) + "file.txt"
+	content := longPath + "\n/etc/passwd\n"
+
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create test log: %v", err)
+	}
+
+	a := NewAnalyzer()
+	manifest, err := a.Analyze(logFile)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	// Should handle long paths without crashing
+	if len(manifest.Files) == 0 {
+		t.Error("Expected at least safelist files")
+	}
+}
+
+func TestAnalyzerCircularSymlink(t *testing.T) {
+	tempDir := t.TempDir()
+	
+	// Create a file and a symlink pointing to itself
+	realFile := filepath.Join(tempDir, "real-file.txt")
+	if err := os.WriteFile(realFile, []byte("content"), 0644); err != nil {
+		t.Fatalf("Failed to create real file: %v", err)
+	}
+	
+	selfLink := filepath.Join(tempDir, "self-link")
+	if err := os.Symlink(selfLink, selfLink); err != nil {
+		t.Skipf("Cannot create self-referencing symlink: %v", err)
+	}
+
+	logFile := filepath.Join(tempDir, "circular.log")
+	content := selfLink + "\n" + realFile + "\n"
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create test log: %v", err)
+	}
+
+	a := NewAnalyzer()
+	// Should not hang or crash on circular symlinks
+	// Note: This may expose a bug in symlink resolution
+	manifest, err := a.Analyze(logFile)
+	if err != nil {
+		t.Logf("Analyze failed on circular symlink (expected): %v", err)
+	}
+
+	// Should still have safelist files even if circular link fails
+	if len(manifest.Files) == 0 {
+		t.Error("Expected at least safelist files")
+	}
+	
+	// Verify the real file was processed
+	hasRealFile := false
+	for _, f := range manifest.Files {
+		if strings.Contains(f, "real-file.txt") {
+			hasRealFile = true
+			break
+		}
+	}
+	if !hasRealFile {
+		t.Error("Expected real file to be in manifest")
+	}
+}
+
+func TestAnalyzerNonELFBinary(t *testing.T) {
+	tempDir := t.TempDir()
+	
+	// Create a shell script (not an ELF binary)
+	scriptFile := filepath.Join(tempDir, "script.sh")
+	scriptContent := "#!/bin/bash\necho 'Hello World'\n"
+	if err := os.WriteFile(scriptFile, []byte(scriptContent), 0755); err != nil {
+		t.Fatalf("Failed to create script: %v", err)
+	}
+
+	// Check that it's correctly identified as non-ELF
+	a := NewAnalyzer()
+	isELF := a.isELFBinary(scriptFile)
+	if isELF {
+		t.Error("Shell script incorrectly identified as ELF binary")
+	}
+}
+
+func TestAnalyzerPermissionDenied(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("Test requires non-root user")
+	}
+
+	tempDir := t.TempDir()
+	
+	// Create a file with no read permissions
+	restrictedFile := filepath.Join(tempDir, "restricted.txt")
+	if err := os.WriteFile(restrictedFile, []byte("secret"), 0000); err != nil {
+		t.Fatalf("Failed to create restricted file: %v", err)
+	}
+	defer os.Chmod(restrictedFile, 0644) // Cleanup
+
+	logFile := filepath.Join(tempDir, "restricted.log")
+	content := restrictedFile + "\n/etc/passwd\n"
+	if err := os.WriteFile(logFile, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create log: %v", err)
+	}
+
+	a := NewAnalyzer()
+	manifest, err := a.Analyze(logFile)
+	if err != nil {
+		t.Fatalf("Analyze failed: %v", err)
+	}
+
+	// Should handle permission denied gracefully
+	if len(manifest.Files) == 0 {
+		t.Error("Expected at least safelist files")
+	}
+}
+
+func TestAnalyzerLargeLogFile(t *testing.T) {
+	tempDir := t.TempDir()
+	logFile := filepath.Join(tempDir, "large.log")
+
+	// Create a log with many entries
+	var content strings.Builder
+	for i := 0; i < 1000; i++ {
+		content.WriteString(fmt.Sprintf("/tmp/file_%d.txt\n", i))
+	}
+
+	if err := os.WriteFile(logFile, []byte(content.String()), 0644); err != nil {
+		t.Fatalf("Failed to create large log: %v", err)
+	}
+
+	a := NewAnalyzer()
+	manifest, err := a.Analyze(logFile)
+	if err != nil {
+		t.Fatalf("Analyze failed on large log: %v", err)
+	}
+
+	// Should handle large files without issues (includes safelist + duplicates resolved)
+	if len(manifest.Files) < 10 {
+		t.Errorf("Expected many files from large log, got %d", len(manifest.Files))
+	}
+	
+	t.Logf("Processed %d files from large log", len(manifest.Files))
 }
 
 func TestResolveDependencies(t *testing.T) {

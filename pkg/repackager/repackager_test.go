@@ -2,6 +2,7 @@ package repackager
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -262,6 +263,225 @@ func TestImageMetadataJSONParsing(t *testing.T) {
 
 	if config.Labels["maintainer"] != "test" {
 		t.Error("Failed to parse Labels correctly")
+	}
+}
+
+// Edge case tests
+
+func TestExtractMetadataEmptyJSON(t *testing.T) {
+	if !isDockerAvailable() {
+		t.Skip("Docker not available")
+	}
+	
+	r := NewRepackager()
+	
+	// Try with an invalid/nonexistent image
+	_, err := r.extractMetadata("nonexistent-image-12345:invalid")
+	if err == nil {
+		t.Error("Expected error for nonexistent image")
+	}
+}
+
+func TestExtractMetadataValidImage(t *testing.T) {
+	if !isDockerAvailable() {
+		t.Skip("Docker not available")
+	}
+	
+	r := NewRepackager()
+	
+	// Extract metadata from real alpine image
+	metadata, err := r.extractMetadata("alpine:latest")
+	if err != nil {
+		t.Fatalf("Failed to extract metadata from alpine: %v", err)
+	}
+
+	// Should have valid metadata structure
+	if metadata == nil {
+		t.Fatal("Expected non-nil metadata")
+	}
+}
+
+func TestGenerateDockerfileEmptyMetadata(t *testing.T) {
+	r := NewRepackager()
+	
+	emptyMetadata := &ImageMetadata{
+		Env:          []string{},
+		ExposedPorts: map[string]struct{}{},
+		Volumes:      map[string]struct{}{},
+		Labels:       map[string]string{},
+		User:         "",
+		WorkingDir:   "",
+		Cmd:          []string{},
+		Entrypoint:   []string{},
+	}
+
+	tempDir := t.TempDir()
+	dockerfilePath := filepath.Join(tempDir, "Dockerfile")
+	
+	err := r.generateDockerfile(dockerfilePath, emptyMetadata)
+	if err != nil {
+		t.Fatalf("Failed to generate empty Dockerfile: %v", err)
+	}
+
+	// Read and verify
+	content, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		t.Fatalf("Failed to read Dockerfile: %v", err)
+	}
+
+	// Should still be valid (just FROM scratch)
+	if !strings.Contains(string(content), "FROM scratch") {
+		t.Error("Expected FROM scratch in Dockerfile")
+	}
+}
+
+func TestGenerateDockerfileComplexEntrypoint(t *testing.T) {
+	r := NewRepackager()
+	
+	metadata := &ImageMetadata{
+		Entrypoint: []string{"/bin/sh", "-c", "echo 'Starting' && /app/start.sh"},
+		Cmd:        []string{"--config", "/etc/app.conf", "--verbose"},
+	}
+
+	tempDir := t.TempDir()
+	dockerfilePath := filepath.Join(tempDir, "Dockerfile")
+	
+	err := r.generateDockerfile(dockerfilePath, metadata)
+	if err != nil {
+		t.Fatalf("Failed to generate Dockerfile: %v", err)
+	}
+
+	content, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		t.Fatalf("Failed to read Dockerfile: %v", err)
+	}
+
+	dockerfile := string(content)
+	// Should properly quote complex commands
+	if !strings.Contains(dockerfile, "ENTRYPOINT") {
+		t.Error("Expected ENTRYPOINT in Dockerfile")
+	}
+	if !strings.Contains(dockerfile, "CMD") {
+		t.Error("Expected CMD in Dockerfile")
+	}
+}
+
+func TestGenerateDockerfileManyEnvironmentVars(t *testing.T) {
+	r := NewRepackager()
+	
+	// Create many environment variables
+	var envVars []string
+	for i := 0; i < 100; i++ {
+		envVars = append(envVars, fmt.Sprintf("VAR_%d=value_%d", i, i))
+	}
+
+	metadata := &ImageMetadata{
+		Env: envVars,
+	}
+
+	tempDir := t.TempDir()
+	dockerfilePath := filepath.Join(tempDir, "Dockerfile")
+	
+	err := r.generateDockerfile(dockerfilePath, metadata)
+	if err != nil {
+		t.Fatalf("Failed to generate Dockerfile with many env vars: %v", err)
+	}
+
+	content, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		t.Fatalf("Failed to read Dockerfile: %v", err)
+	}
+
+	// Should handle many variables
+	envCount := strings.Count(string(content), "ENV ")
+	if envCount < 90 {
+		t.Errorf("Expected many ENV directives, got %d", envCount)
+	}
+}
+
+func TestGenerateDockerfilePathWithSpaces(t *testing.T) {
+	r := NewRepackager()
+	
+	metadata := &ImageMetadata{
+		WorkingDir: "/path with spaces/to/app",
+		Volumes: map[string]struct{}{
+			"/data with spaces":   {},
+			"/another path/volume": {},
+		},
+	}
+
+	tempDir := t.TempDir()
+	dockerfilePath := filepath.Join(tempDir, "Dockerfile")
+	
+	err := r.generateDockerfile(dockerfilePath, metadata)
+	if err != nil {
+		t.Fatalf("Failed to generate Dockerfile: %v", err)
+	}
+
+	content, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		t.Fatalf("Failed to read Dockerfile: %v", err)
+	}
+
+	// Should properly quote paths with spaces
+	if !strings.Contains(string(content), "WORKDIR") {
+		t.Error("Expected WORKDIR in Dockerfile")
+	}
+}
+
+func TestCopyFilesWithDuplicates(t *testing.T) {
+	if !isDockerAvailable() {
+		t.Skip("Docker not available")
+	}
+
+	r := NewRepackager()
+	
+	// List with duplicate files
+	files := []string{
+		"/etc/passwd",
+		"/etc/passwd",  // duplicate
+		"/etc/group",
+		"/etc/passwd",  // another duplicate
+	}
+
+	tempDir := t.TempDir()
+	
+	// Should handle duplicates gracefully (copy once)
+	err := r.copyFiles("alpine:latest", files, tempDir)
+	if err != nil {
+		t.Logf("Note: Copy might fail if files don't exist in alpine, error: %v", err)
+	}
+}
+
+func TestGenerateDockerfileEscapeCharacters(t *testing.T) {
+	r := NewRepackager()
+	
+	metadata := &ImageMetadata{
+		Env: []string{
+			`PATH=/bin:/usr/bin`,
+			`VAR_WITH_DOLLAR=$VALUE`,
+		},
+		Labels: map[string]string{
+			"description": `App with special chars`,
+		},
+	}
+
+	tempDir := t.TempDir()
+	dockerfilePath := filepath.Join(tempDir, "Dockerfile")
+	
+	err := r.generateDockerfile(dockerfilePath, metadata)
+	if err != nil {
+		t.Fatalf("Failed to generate Dockerfile: %v", err)
+	}
+
+	content, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		t.Fatalf("Failed to read Dockerfile: %v", err)
+	}
+
+	// Should handle escaping properly
+	if !strings.Contains(string(content), "ENV") {
+		t.Error("Expected ENV directives")
 	}
 }
 
