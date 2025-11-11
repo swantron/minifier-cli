@@ -272,9 +272,9 @@ func TestExtractMetadataEmptyJSON(t *testing.T) {
 	if !isDockerAvailable() {
 		t.Skip("Docker not available")
 	}
-	
+
 	r := NewRepackager()
-	
+
 	// Try with an invalid/nonexistent image
 	_, err := r.extractMetadata("nonexistent-image-12345:invalid")
 	if err == nil {
@@ -286,9 +286,9 @@ func TestExtractMetadataValidImage(t *testing.T) {
 	if !isDockerAvailable() {
 		t.Skip("Docker not available")
 	}
-	
+
 	r := NewRepackager()
-	
+
 	// Extract metadata from real alpine image
 	metadata, err := r.extractMetadata("alpine:latest")
 	if err != nil {
@@ -303,7 +303,7 @@ func TestExtractMetadataValidImage(t *testing.T) {
 
 func TestGenerateDockerfileEmptyMetadata(t *testing.T) {
 	r := NewRepackager()
-	
+
 	emptyMetadata := &ImageMetadata{
 		Env:          []string{},
 		ExposedPorts: map[string]struct{}{},
@@ -317,7 +317,7 @@ func TestGenerateDockerfileEmptyMetadata(t *testing.T) {
 
 	tempDir := t.TempDir()
 	dockerfilePath := filepath.Join(tempDir, "Dockerfile")
-	
+
 	err := r.generateDockerfile(dockerfilePath, emptyMetadata)
 	if err != nil {
 		t.Fatalf("Failed to generate empty Dockerfile: %v", err)
@@ -337,7 +337,7 @@ func TestGenerateDockerfileEmptyMetadata(t *testing.T) {
 
 func TestGenerateDockerfileComplexEntrypoint(t *testing.T) {
 	r := NewRepackager()
-	
+
 	metadata := &ImageMetadata{
 		Entrypoint: []string{"/bin/sh", "-c", "echo 'Starting' && /app/start.sh"},
 		Cmd:        []string{"--config", "/etc/app.conf", "--verbose"},
@@ -345,7 +345,7 @@ func TestGenerateDockerfileComplexEntrypoint(t *testing.T) {
 
 	tempDir := t.TempDir()
 	dockerfilePath := filepath.Join(tempDir, "Dockerfile")
-	
+
 	err := r.generateDockerfile(dockerfilePath, metadata)
 	if err != nil {
 		t.Fatalf("Failed to generate Dockerfile: %v", err)
@@ -368,7 +368,7 @@ func TestGenerateDockerfileComplexEntrypoint(t *testing.T) {
 
 func TestGenerateDockerfileManyEnvironmentVars(t *testing.T) {
 	r := NewRepackager()
-	
+
 	// Create many environment variables
 	var envVars []string
 	for i := 0; i < 100; i++ {
@@ -381,7 +381,7 @@ func TestGenerateDockerfileManyEnvironmentVars(t *testing.T) {
 
 	tempDir := t.TempDir()
 	dockerfilePath := filepath.Join(tempDir, "Dockerfile")
-	
+
 	err := r.generateDockerfile(dockerfilePath, metadata)
 	if err != nil {
 		t.Fatalf("Failed to generate Dockerfile with many env vars: %v", err)
@@ -401,18 +401,18 @@ func TestGenerateDockerfileManyEnvironmentVars(t *testing.T) {
 
 func TestGenerateDockerfilePathWithSpaces(t *testing.T) {
 	r := NewRepackager()
-	
+
 	metadata := &ImageMetadata{
 		WorkingDir: "/path with spaces/to/app",
 		Volumes: map[string]struct{}{
-			"/data with spaces":   {},
+			"/data with spaces":    {},
 			"/another path/volume": {},
 		},
 	}
 
 	tempDir := t.TempDir()
 	dockerfilePath := filepath.Join(tempDir, "Dockerfile")
-	
+
 	err := r.generateDockerfile(dockerfilePath, metadata)
 	if err != nil {
 		t.Fatalf("Failed to generate Dockerfile: %v", err)
@@ -435,17 +435,17 @@ func TestCopyFilesWithDuplicates(t *testing.T) {
 	}
 
 	r := NewRepackager()
-	
+
 	// List with duplicate files
 	files := []string{
 		"/etc/passwd",
-		"/etc/passwd",  // duplicate
+		"/etc/passwd", // duplicate
 		"/etc/group",
-		"/etc/passwd",  // another duplicate
+		"/etc/passwd", // another duplicate
 	}
 
 	tempDir := t.TempDir()
-	
+
 	// Should handle duplicates gracefully (copy once)
 	err := r.copyFiles("alpine:latest", files, tempDir)
 	if err != nil {
@@ -455,7 +455,7 @@ func TestCopyFilesWithDuplicates(t *testing.T) {
 
 func TestGenerateDockerfileEscapeCharacters(t *testing.T) {
 	r := NewRepackager()
-	
+
 	metadata := &ImageMetadata{
 		Env: []string{
 			`PATH=/bin:/usr/bin`,
@@ -468,7 +468,7 @@ func TestGenerateDockerfileEscapeCharacters(t *testing.T) {
 
 	tempDir := t.TempDir()
 	dockerfilePath := filepath.Join(tempDir, "Dockerfile")
-	
+
 	err := r.generateDockerfile(dockerfilePath, metadata)
 	if err != nil {
 		t.Fatalf("Failed to generate Dockerfile: %v", err)

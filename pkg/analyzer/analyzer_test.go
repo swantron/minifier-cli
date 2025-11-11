@@ -439,13 +439,13 @@ func TestAnalyzerVeryLongPath(t *testing.T) {
 
 func TestAnalyzerCircularSymlink(t *testing.T) {
 	tempDir := t.TempDir()
-	
+
 	// Create a file and a symlink pointing to itself
 	realFile := filepath.Join(tempDir, "real-file.txt")
 	if err := os.WriteFile(realFile, []byte("content"), 0644); err != nil {
 		t.Fatalf("Failed to create real file: %v", err)
 	}
-	
+
 	selfLink := filepath.Join(tempDir, "self-link")
 	if err := os.Symlink(selfLink, selfLink); err != nil {
 		t.Skipf("Cannot create self-referencing symlink: %v", err)
@@ -469,7 +469,7 @@ func TestAnalyzerCircularSymlink(t *testing.T) {
 	if len(manifest.Files) == 0 {
 		t.Error("Expected at least safelist files")
 	}
-	
+
 	// Verify the real file was processed
 	hasRealFile := false
 	for _, f := range manifest.Files {
@@ -485,7 +485,7 @@ func TestAnalyzerCircularSymlink(t *testing.T) {
 
 func TestAnalyzerNonELFBinary(t *testing.T) {
 	tempDir := t.TempDir()
-	
+
 	// Create a shell script (not an ELF binary)
 	scriptFile := filepath.Join(tempDir, "script.sh")
 	scriptContent := "#!/bin/bash\necho 'Hello World'\n"
@@ -507,7 +507,7 @@ func TestAnalyzerPermissionDenied(t *testing.T) {
 	}
 
 	tempDir := t.TempDir()
-	
+
 	// Create a file with no read permissions
 	restrictedFile := filepath.Join(tempDir, "restricted.txt")
 	if err := os.WriteFile(restrictedFile, []byte("secret"), 0000); err != nil {
@@ -557,7 +557,7 @@ func TestAnalyzerLargeLogFile(t *testing.T) {
 	if len(manifest.Files) < 10 {
 		t.Errorf("Expected many files from large log, got %d", len(manifest.Files))
 	}
-	
+
 	t.Logf("Processed %d files from large log", len(manifest.Files))
 }
 
