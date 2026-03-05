@@ -4,6 +4,11 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g. v0.2.0)'
+        required: true
 
 jobs:
   build:
@@ -17,6 +22,14 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Create and push tag (workflow_dispatch only)
+        if: github.event_name == 'workflow_dispatch'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ github.event.inputs.version }}
+          git push origin ${{ github.event.inputs.version }}
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -24,24 +37,20 @@ jobs:
           cache: false
 
       - name: Build Linux AMD64
-        run: |
-          GOOS=linux GOARCH=amd64 go build -o minifier-cli-linux-amd64 .
+        run: GOOS=linux GOARCH=amd64 go build -o minifier-cli-linux-amd64 .
       - name: Build Linux ARM64
-        run: |
-          GOOS=linux GOARCH=arm64 go build -o minifier-cli-linux-arm64 .
+        run: GOOS=linux GOARCH=arm64 go build -o minifier-cli-linux-arm64 .
       - name: Build macOS AMD64
-        run: |
-          GOOS=darwin GOARCH=amd64 go build -o minifier-cli-darwin-amd64 .
+        run: GOOS=darwin GOARCH=amd64 go build -o minifier-cli-darwin-amd64 .
       - name: Build macOS ARM64
-        run: |
-          GOOS=darwin GOARCH=arm64 go build -o minifier-cli-darwin-arm64 .
+        run: GOOS=darwin GOARCH=arm64 go build -o minifier-cli-darwin-arm64 .
       - name: Build Windows AMD64
-        run: |
-          GOOS=windows GOARCH=amd64 go build -o minifier-cli-windows-amd64.exe .
+        run: GOOS=windows GOARCH=amd64 go build -o minifier-cli-windows-amd64.exe .
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version || github.ref_name }}
           files: |
             minifier-cli-linux-amd64
             minifier-cli-linux-arm64
