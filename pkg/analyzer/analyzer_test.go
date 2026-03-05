@@ -569,7 +569,7 @@ func TestResolveDependencies(t *testing.T) {
 		"/bin/sh":     {},
 	}
 
-	files := a.resolveDependencies(fileSet)
+	files := a.ResolveDependencies(fileSet)
 
 	// Should have at least the original files plus safelist
 	if len(files) < 2 {

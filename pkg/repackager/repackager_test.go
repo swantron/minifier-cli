@@ -96,7 +96,7 @@ func TestGenerateDockerfile(t *testing.T) {
 		t.Error("Dockerfile should contain 'FROM scratch'")
 	}
 
-	if !strings.Contains(dockerfile, "ENV PATH=/usr/bin") {
+	if !strings.Contains(dockerfile, `ENV PATH="/usr/bin"`) {
 		t.Error("Dockerfile should contain ENV directive")
 	}
 
@@ -162,8 +162,7 @@ func TestCopyFilesEmptyList(t *testing.T) {
 
 	tempDir := t.TempDir()
 
-	// Should handle empty file list
-	err := r.copyFiles("nonexistent", []string{}, tempDir)
+	_, _, err := r.copyFiles("nonexistent", []string{}, tempDir)
 	if err == nil {
 		t.Error("Expected error when copying zero files")
 	}
@@ -179,7 +178,7 @@ func TestCopyFilesInvalidContainer(t *testing.T) {
 	tempDir := t.TempDir()
 	files := []string{"/bin/sh"}
 
-	err := r.copyFiles("nonexistent-container", files, tempDir)
+	_, _, err := r.copyFiles("nonexistent-container", files, tempDir)
 	if err == nil {
 		t.Error("Expected error for non-existent container")
 	}
@@ -447,7 +446,7 @@ func TestCopyFilesWithDuplicates(t *testing.T) {
 	tempDir := t.TempDir()
 
 	// Should handle duplicates gracefully (copy once)
-	err := r.copyFiles("alpine:latest", files, tempDir)
+	_, _, err := r.copyFiles("alpine:latest", files, tempDir)
 	if err != nil {
 		t.Logf("Note: Copy might fail if files don't exist in alpine, error: %v", err)
 	}

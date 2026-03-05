@@ -1,8 +1,12 @@
 package repackager
 
 import (
+	"archive/tar"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +36,12 @@ func NewRepackager() *Repackager {
 	return &Repackager{}
 }
 
+func randomSuffix() string {
+	b := make([]byte, 4)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 func (r *Repackager) Repackage(sourceImage, outputImage string, manifest *analyzer.FileManifest) error {
 	tempDir, err := os.MkdirTemp("", "minifier-build-")
 	if err != nil {
@@ -39,7 +49,7 @@ func (r *Repackager) Repackage(sourceImage, outputImage string, manifest *analyz
 	}
 	defer os.RemoveAll(tempDir)
 
-	containerName := fmt.Sprintf("minifier-temp-%d", os.Getpid())
+	containerName := fmt.Sprintf("minifier-temp-%s", randomSuffix())
 
 	cmd := exec.Command("docker", "create", "--name", containerName, sourceImage)
 	if err := cmd.Run(); err != nil {
@@ -52,8 +62,43 @@ func (r *Repackager) Repackage(sourceImage, outputImage string, manifest *analyz
 		return fmt.Errorf("failed to create files directory: %w", err)
 	}
 
-	if err := r.copyFiles(containerName, manifest.Files, filesDir); err != nil {
+	copied, missing, err := r.copyFiles(containerName, manifest.Files, filesDir)
+	if err != nil {
 		return fmt.Errorf("failed to copy files: %w", err)
+	}
+	if len(missing) > 0 {
+		fmt.Fprintf(os.Stderr, "Warning: %d files from trace log not found in container:\n", len(missing))
+		for _, f := range missing {
+			fmt.Fprintf(os.Stderr, "  %s\n", f)
+		}
+	}
+	if copied == 0 {
+		return fmt.Errorf("failed to copy any files from container")
+	}
+
+	// Second pass: resolve ELF dependencies against the extracted filesystem.
+	// This correctly resolves shared library paths for the container's architecture
+	// rather than the host's.
+	a := analyzer.NewAnalyzerWithRoot(filesDir)
+	fileSet := make(map[string]struct{})
+	for _, f := range manifest.Files {
+		fileSet[f] = struct{}{}
+	}
+	additionalFiles := a.ResolveDependencies(fileSet)
+
+	existingSet := make(map[string]struct{})
+	for _, f := range manifest.Files {
+		existingSet[f] = struct{}{}
+	}
+	var newFiles []string
+	for _, f := range additionalFiles {
+		if _, ok := existingSet[f]; !ok {
+			newFiles = append(newFiles, f)
+		}
+	}
+	if len(newFiles) > 0 {
+		fmt.Printf("Resolved %d additional dependencies via ELF analysis\n", len(newFiles))
+		r.copyFiles(containerName, newFiles, filesDir)
 	}
 
 	metadata, err := r.extractMetadata(sourceImage)
@@ -75,32 +120,120 @@ func (r *Repackager) Repackage(sourceImage, outputImage string, manifest *analyz
 	return nil
 }
 
-func (r *Repackager) copyFiles(containerName string, files []string, destDir string) error {
-	successCount := 0
-	for _, file := range files {
-		if file == "" || file == "/" {
+// copyFiles uses docker export to stream the entire container filesystem as a tar
+// and extract only the requested files in a single pass, avoiding one subprocess
+// per file.
+func (r *Repackager) copyFiles(containerName string, files []string, destDir string) (copied int, missing []string, err error) {
+	if len(files) == 0 {
+		return 0, nil, fmt.Errorf("no files requested")
+	}
+
+	// Build a lookup set with both slash-prefixed and unprefixed forms.
+	wanted := make(map[string]bool) // container path -> found?
+	for _, f := range files {
+		if f == "" || f == "/" {
 			continue
 		}
+		wanted[f] = false
+	}
 
-		destPath := filepath.Join(destDir, file)
-		destFileDir := filepath.Dir(destPath)
+	cmd := exec.Command("docker", "export", containerName)
+	stdout, pipeErr := cmd.StdoutPipe()
+	if pipeErr != nil {
+		return 0, nil, fmt.Errorf("failed to create pipe: %w", pipeErr)
+	}
+	cmd.Stderr = os.Stderr
 
-		if err := os.MkdirAll(destFileDir, 0755); err != nil {
-			continue
+	if startErr := cmd.Start(); startErr != nil {
+		return 0, nil, fmt.Errorf("failed to start docker export: %w", startErr)
+	}
+
+	tr := tar.NewReader(stdout)
+	for {
+		header, tarErr := tr.Next()
+		if tarErr == io.EOF {
+			break
+		}
+		if tarErr != nil {
+			cmd.Wait()
+			return copied, nil, fmt.Errorf("error reading tar stream: %w", tarErr)
 		}
 
-		srcPath := fmt.Sprintf("%s:%s", containerName, file)
-		cmd := exec.Command("docker", "cp", srcPath, destPath)
-		if err := cmd.Run(); err == nil {
-			successCount++
+		// Normalize: tar entries are "./path/to/file", map to "/path/to/file"
+		name := header.Name
+		name = strings.TrimPrefix(name, "./")
+		if !strings.HasPrefix(name, "/") {
+			name = "/" + name
+		}
+		name = filepath.Clean(name)
+
+		if _, ok := wanted[name]; !ok {
+			continue
+		}
+		wanted[name] = true
+
+		destPath := filepath.Join(destDir, name)
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if mkErr := os.MkdirAll(destPath, os.FileMode(header.Mode)|0111); mkErr == nil {
+				copied++
+			}
+		case tar.TypeReg, tar.TypeRegA:
+			if mkErr := os.MkdirAll(filepath.Dir(destPath), 0755); mkErr != nil {
+				continue
+			}
+			f, openErr := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
+			if openErr != nil {
+				continue
+			}
+			io.Copy(f, tr)
+			f.Close()
+			copied++
+		case tar.TypeSymlink:
+			if mkErr := os.MkdirAll(filepath.Dir(destPath), 0755); mkErr != nil {
+				continue
+			}
+			os.Remove(destPath) // remove stale link if present
+			if linkErr := os.Symlink(header.Linkname, destPath); linkErr == nil {
+				copied++
+			}
+		case tar.TypeLink:
+			// Hard link — copy the target file instead
+			srcPath := filepath.Join(destDir, filepath.Clean("/"+header.Linkname))
+			if mkErr := os.MkdirAll(filepath.Dir(destPath), 0755); mkErr != nil {
+				continue
+			}
+			if linkErr := os.Link(srcPath, destPath); linkErr != nil {
+				// Fall back to copy if hard link fails (e.g. cross-device)
+				srcFile, openErr := os.Open(srcPath)
+				if openErr != nil {
+					continue
+				}
+				dstFile, openErr := os.OpenFile(destPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, os.FileMode(header.Mode))
+				if openErr != nil {
+					srcFile.Close()
+					continue
+				}
+				io.Copy(dstFile, srcFile)
+				srcFile.Close()
+				dstFile.Close()
+			}
+			copied++
 		}
 	}
 
-	if successCount == 0 {
-		return fmt.Errorf("failed to copy any files from container")
+	if waitErr := cmd.Wait(); waitErr != nil {
+		return copied, nil, fmt.Errorf("docker export failed: %w", waitErr)
 	}
 
-	return nil
+	for path, found := range wanted {
+		if !found {
+			missing = append(missing, path)
+		}
+	}
+
+	return copied, missing, nil
 }
 
 func (r *Repackager) extractMetadata(image string) (*ImageMetadata, error) {
@@ -126,19 +259,28 @@ func (r *Repackager) generateDockerfile(path string, metadata *ImageMetadata) er
 	var content strings.Builder
 
 	content.WriteString("FROM scratch\n\n")
-
 	content.WriteString("COPY files/ /\n\n")
 
 	if len(metadata.Env) > 0 {
 		for _, env := range metadata.Env {
-			content.WriteString(fmt.Sprintf("ENV %s\n", env))
+			parts := strings.SplitN(env, "=", 2)
+			if len(parts) == 2 {
+				// Always quote the value to handle spaces and special characters.
+				escapedVal := strings.ReplaceAll(parts[1], `\`, `\\`)
+				escapedVal = strings.ReplaceAll(escapedVal, `"`, `\"`)
+				content.WriteString(fmt.Sprintf("ENV %s=\"%s\"\n", parts[0], escapedVal))
+			} else {
+				content.WriteString(fmt.Sprintf("ENV %s\n", env))
+			}
 		}
 		content.WriteString("\n")
 	}
 
 	if len(metadata.Labels) > 0 {
 		for key, value := range metadata.Labels {
-			content.WriteString(fmt.Sprintf("LABEL %s=\"%s\"\n", key, value))
+			escapedVal := strings.ReplaceAll(value, `\`, `\\`)
+			escapedVal = strings.ReplaceAll(escapedVal, `"`, `\"`)
+			content.WriteString(fmt.Sprintf("LABEL %s=\"%s\"\n", key, escapedVal))
 		}
 		content.WriteString("\n")
 	}

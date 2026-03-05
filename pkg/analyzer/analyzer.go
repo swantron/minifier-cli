@@ -13,10 +13,27 @@ type FileManifest struct {
 	Files []string
 }
 
-type Analyzer struct{}
+type Analyzer struct {
+	root string
+}
 
 func NewAnalyzer() *Analyzer {
 	return &Analyzer{}
+}
+
+// NewAnalyzerWithRoot creates an Analyzer that resolves container-internal paths
+// against root (e.g. an extracted container filesystem directory).
+func NewAnalyzerWithRoot(root string) *Analyzer {
+	return &Analyzer{root: root}
+}
+
+// hostPath translates a container-internal path to the host path used for
+// filesystem access. With no root set, the path is returned unchanged.
+func (a *Analyzer) hostPath(containerPath string) string {
+	if a.root == "" {
+		return containerPath
+	}
+	return filepath.Join(a.root, containerPath)
 }
 
 func (a *Analyzer) Analyze(logFilePath string) (*FileManifest, error) {
@@ -40,16 +57,12 @@ func (a *Analyzer) Analyze(logFilePath string) (*FileManifest, error) {
 		return nil, fmt.Errorf("error reading log file: %w", err)
 	}
 
-	files := a.resolveDependencies(fileSet)
+	files := a.ResolveDependencies(fileSet)
 
-	manifest := &FileManifest{
-		Files: files,
-	}
-
-	return manifest, nil
+	return &FileManifest{Files: files}, nil
 }
 
-func (a *Analyzer) resolveDependencies(fileSet map[string]struct{}) []string {
+func (a *Analyzer) ResolveDependencies(fileSet map[string]struct{}) []string {
 	resolved := make(map[string]struct{})
 
 	for file := range fileSet {
@@ -73,11 +86,11 @@ func (a *Analyzer) resolveDependencies(fileSet map[string]struct{}) []string {
 }
 
 func (a *Analyzer) resolveSymlinks(file string, resolved map[string]struct{}) {
-	if _, err := os.Lstat(file); err != nil {
+	if _, err := os.Lstat(a.hostPath(file)); err != nil {
 		return
 	}
 
-	target, err := os.Readlink(file)
+	target, err := os.Readlink(a.hostPath(file))
 	if err != nil {
 		return
 	}
@@ -100,7 +113,7 @@ func (a *Analyzer) resolveSymlinks(file string, resolved map[string]struct{}) {
 }
 
 func (a *Analyzer) isELFBinary(file string) bool {
-	f, err := os.Open(file)
+	f, err := os.Open(a.hostPath(file))
 	if err != nil {
 		return false
 	}
@@ -111,7 +124,7 @@ func (a *Analyzer) isELFBinary(file string) bool {
 }
 
 func (a *Analyzer) resolveELFDependencies(file string, resolved map[string]struct{}) {
-	f, err := os.Open(file)
+	f, err := os.Open(a.hostPath(file))
 	if err != nil {
 		return
 	}
@@ -142,7 +155,7 @@ func (a *Analyzer) resolveELFDependencies(file string, resolved map[string]struc
 	for _, lib := range libs {
 		for _, ldPath := range ldPaths {
 			libPath := filepath.Join(ldPath, lib)
-			if _, err := os.Stat(libPath); err == nil {
+			if _, err := os.Stat(a.hostPath(libPath)); err == nil {
 				resolved[libPath] = struct{}{}
 				a.resolveSymlinks(libPath, resolved)
 				a.resolveELFDependencies(libPath, resolved)
@@ -175,16 +188,14 @@ func (a *Analyzer) getELFInterpreter(elfFile *elf.File) string {
 }
 
 func (a *Analyzer) addSafelistFiles(resolved map[string]struct{}) {
+	// Architecture-agnostic files only. Arch-specific shared libraries
+	// are resolved via ELF dependency analysis against the container filesystem.
 	safelistFiles := []string{
 		"/etc/passwd",
 		"/etc/group",
 		"/etc/hosts",
 		"/etc/resolv.conf",
 		"/etc/nsswitch.conf",
-		"/lib/x86_64-linux-gnu/libc.so.6",
-		"/lib/x86_64-linux-gnu/libm.so.6",
-		"/lib/x86_64-linux-gnu/libpthread.so.0",
-		"/lib64/ld-linux-x86-64.so.2",
 	}
 
 	for _, file := range safelistFiles {

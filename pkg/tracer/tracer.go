@@ -13,10 +13,16 @@ import (
 	"github.com/swantron/minifier-cli/pkg/session"
 )
 
-type Tracer struct{}
+type Tracer struct {
+	timeout time.Duration
+}
 
 func NewTracer() *Tracer {
-	return &Tracer{}
+	return &Tracer{timeout: 5 * time.Minute}
+}
+
+func NewTracerWithTimeout(d time.Duration) *Tracer {
+	return &Tracer{timeout: d}
 }
 
 func (t *Tracer) Start(image, name string, dockerArgs []string) (*session.Session, <-chan struct{}, error) {
@@ -96,7 +102,7 @@ func (t *Tracer) traceContainer(containerID, logFile string) {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
 
-	timeout := time.After(5 * time.Minute)
+	timeout := time.After(t.timeout)
 
 	for {
 		select {

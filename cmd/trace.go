@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/swantron/minifier-cli/pkg/session"
@@ -33,14 +34,16 @@ var traceStopCmd = &cobra.Command{
 }
 
 var (
-	imageName   string
-	sessionName string
-	dockerArgs  []string
+	imageName    string
+	sessionName  string
+	dockerArgs   []string
+	traceTimeout time.Duration
 )
 
 func init() {
 	traceStartCmd.Flags().StringVar(&imageName, "image", "", "Container image to trace (required)")
 	traceStartCmd.Flags().StringVar(&sessionName, "name", "", "Session name for this trace (required)")
+	traceStartCmd.Flags().DurationVar(&traceTimeout, "timeout", 5*time.Minute, "Maximum trace duration")
 	traceStartCmd.MarkFlagRequired("image")
 	traceStartCmd.MarkFlagRequired("name")
 
@@ -54,7 +57,7 @@ func init() {
 func runTraceStart(cmd *cobra.Command, args []string) {
 	dockerArgs = args
 
-	t := tracer.NewTracer()
+	t := tracer.NewTracerWithTimeout(traceTimeout)
 	sess, done, err := t.Start(imageName, sessionName, dockerArgs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting trace: %v\n", err)
