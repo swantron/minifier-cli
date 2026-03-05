@@ -87,10 +87,16 @@ func (a *Analyzer) resolveSymlinks(file string, resolved map[string]struct{}) {
 	}
 
 	target = filepath.Clean(target)
-	if target != file {
-		resolved[target] = struct{}{}
-		a.resolveSymlinks(target, resolved)
+	if target == file {
+		return
 	}
+
+	if _, seen := resolved[target]; seen {
+		return
+	}
+
+	resolved[target] = struct{}{}
+	a.resolveSymlinks(target, resolved)
 }
 
 func (a *Analyzer) isELFBinary(file string) bool {

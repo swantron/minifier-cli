@@ -19,13 +19,15 @@ containing only the files that were accessed during the trace session.`,
 }
 
 var (
-	outputImage string
-	logFile     string
+	outputImage     string
+	logFile         string
+	sourceImageFlag string
 )
 
 func init() {
 	repackageCmd.Flags().StringVar(&sessionName, "name", "", "Session name (mutually exclusive with --log-file)")
 	repackageCmd.Flags().StringVar(&logFile, "log-file", "", "Path to trace log file (mutually exclusive with --name)")
+	repackageCmd.Flags().StringVar(&sourceImageFlag, "source-image", "", "Source image to copy files from (required with --log-file)")
 	repackageCmd.Flags().StringVar(&outputImage, "output", "", "Output image name:tag (required)")
 	repackageCmd.MarkFlagRequired("output")
 }
@@ -41,6 +43,11 @@ func runRepackage(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
+	if logFile != "" && sourceImageFlag == "" {
+		fmt.Fprintln(os.Stderr, "Error: --source-image is required when using --log-file")
+		os.Exit(1)
+	}
+
 	traceLogPath := logFile
 	var sourceImage string
 
@@ -52,6 +59,8 @@ func runRepackage(cmd *cobra.Command, args []string) {
 		}
 		traceLogPath = sess.LogFile
 		sourceImage = sess.Image
+	} else {
+		sourceImage = sourceImageFlag
 	}
 
 	a := analyzer.NewAnalyzer()
@@ -69,5 +78,5 @@ func runRepackage(cmd *cobra.Command, args []string) {
 		os.Exit(1)
 	}
 
-	fmt.Printf("✓ Successfully created minified image: %s\n", outputImage)
+	fmt.Printf("Successfully created minified image: %s\n", outputImage)
 }

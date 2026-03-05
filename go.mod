@@ -1,6 +1,6 @@
 module github.com/swantron/minifier-cli
 
-go 1.25.3
+go 1.23.0
 
 require (
 	github.com/cilium/ebpf v0.20.0

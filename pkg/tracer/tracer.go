@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/swantron/minifier-cli/pkg/session"
@@ -20,7 +19,7 @@ func NewTracer() *Tracer {
 	return &Tracer{}
 }
 
-func (t *Tracer) Start(image, name string, dockerArgs []string) (*session.Session, error) {
+func (t *Tracer) Start(image, name string, dockerArgs []string) (*session.Session, <-chan struct{}, error) {
 	logFile := filepath.Join(os.TempDir(), fmt.Sprintf("minifier-trace-%s.log", name))
 
 	containerName := fmt.Sprintf("minifier-%s", name)
@@ -40,37 +39,34 @@ func (t *Tracer) Start(image, name string, dockerArgs []string) (*session.Sessio
 	cmd := exec.Command("docker", args...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return nil, fmt.Errorf("failed to start container: %w\nOutput: %s", err, string(output))
+		return nil, nil, fmt.Errorf("failed to start container: %w\nOutput: %s", err, string(output))
 	}
 
 	containerID := strings.TrimSpace(string(output))
 
-	if err := os.WriteFile(logFile, []byte{}, 0644); err != nil {
+	if err := os.WriteFile(logFile, []byte{}, 0600); err != nil {
 		exec.Command("docker", "rm", "-f", containerID).Run()
-		return nil, fmt.Errorf("failed to create log file: %w", err)
+		return nil, nil, fmt.Errorf("failed to create log file: %w", err)
 	}
 
 	// Wait a moment for container to fully start
 	time.Sleep(500 * time.Millisecond)
 
-	pid, err := t.getContainerPID(containerID)
-	if err != nil {
-		// Don't fail if we can't get PID - tracer will still work
-		pid = 0
-	}
-
-	// Start background tracing
-	go t.traceContainer(containerID, logFile)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		t.traceContainer(containerID, logFile)
+	}()
 
 	sess := &session.Session{
 		Name:        name,
 		Image:       image,
 		ContainerID: containerID,
-		TracerPID:   pid,
+		TracerPID:   os.Getpid(),
 		LogFile:     logFile,
 	}
 
-	return sess, nil
+	return sess, done, nil
 }
 
 func (t *Tracer) getContainerPID(containerID string) (int, error) {
@@ -85,36 +81,12 @@ func (t *Tracer) getContainerPID(containerID string) (int, error) {
 	return pid, err
 }
 
-func (t *Tracer) traceContainer(containerID, logFile string) error {
-	defer func() {
-		if r := recover(); r != nil {
-			errorLog := strings.Replace(logFile, ".log", ".panic.log", 1)
-			os.WriteFile(errorLog, []byte(fmt.Sprintf("PANIC: %v\n", r)), 0644)
-		}
-	}()
-
-	// Create error log for debugging
-	errorLog := strings.Replace(logFile, ".log", ".error.log", 1)
-	errFile, err := os.Create(errorLog)
+func (t *Tracer) traceContainer(containerID, logFile string) {
+	file, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
-		return fmt.Errorf("failed to create error log: %w", err)
-	}
-	defer errFile.Close()
-	defer fmt.Fprintf(errFile, "Tracer goroutine finished for %s\n", containerID)
-
-	fmt.Fprintf(errFile, "Tracer goroutine STARTED for container %s\n", containerID)
-	errFile.Sync()
-
-	file, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		fmt.Fprintf(errFile, "CRITICAL: Failed to open log file %s: %v\n", logFile, err)
-		errFile.Sync()
-		return fmt.Errorf("failed to open log file: %w", err)
+		return
 	}
 	defer file.Close()
-
-	fmt.Fprintf(errFile, "Log file opened successfully: %s\n", logFile)
-	errFile.Sync()
 
 	writer := bufio.NewWriter(file)
 	defer writer.Flush()
@@ -126,46 +98,19 @@ func (t *Tracer) traceContainer(containerID, logFile string) error {
 
 	timeout := time.After(5 * time.Minute)
 
-	fmt.Fprintf(errFile, "Entering main loop\n")
-	errFile.Sync()
-
-	iterationCount := 0
 	for {
 		select {
 		case <-timeout:
-			fmt.Fprintf(errFile, "Timeout reached after %d iterations\n", iterationCount)
-			errFile.Sync()
-			return nil
+			return
 		case <-ticker.C:
-			iterationCount++
-
-			if iterationCount <= 3 {
-				fmt.Fprintf(errFile, "Iteration %d started\n", iterationCount)
-				errFile.Sync()
-			}
-
 			isRunning, err := t.isContainerRunning(containerID)
-			if err != nil {
-				fmt.Fprintf(errFile, "Error checking if running: %v\n", err)
-				errFile.Sync()
-				return nil
-			}
-			if !isRunning {
-				fmt.Fprintf(errFile, "Container stopped after %d iterations\n", iterationCount)
-				errFile.Sync()
-				return nil
+			if err != nil || !isRunning {
+				return
 			}
 
 			files, err := t.captureFileAccess(containerID)
 			if err != nil {
-				fmt.Fprintf(errFile, "Iteration %d: Error capturing files: %v\n", iterationCount, err)
-				errFile.Sync()
 				continue
-			}
-
-			if iterationCount <= 3 {
-				fmt.Fprintf(errFile, "Iteration %d: Captured %d files\n", iterationCount, len(files))
-				errFile.Sync()
 			}
 
 			newFiles := 0
@@ -183,8 +128,6 @@ func (t *Tracer) traceContainer(containerID, logFile string) error {
 
 			if newFiles > 0 {
 				writer.Flush()
-				fmt.Fprintf(errFile, "Iteration %d: Wrote %d new files (total: %d)\n", iterationCount, newFiles, len(seenFiles))
-				errFile.Sync()
 			}
 		}
 	}
@@ -312,7 +255,7 @@ func (t *Tracer) captureLsofFiles(containerID string) ([]string, error) {
 	cmd := exec.Command("docker", "exec", containerID, "sh", "-c", "lsof -F n 2>/dev/null | grep '^n/' | cut -c2-")
 	output, err := cmd.Output()
 	if err != nil {
-		return t.captureBasicFiles(containerID)
+		return nil, err
 	}
 
 	var files []string
@@ -363,23 +306,4 @@ func (t *Tracer) Stop(sess *session.Session) error {
 	}
 
 	return nil
-}
-
-func (t *Tracer) Trace(containerID string, logFile string) error {
-	file, err := os.OpenFile(logFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open log file: %w", err)
-	}
-	defer file.Close()
-
-	return nil
-}
-
-func terminateProcess(pid int) error {
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return err
-	}
-
-	return process.Signal(syscall.SIGTERM)
 }

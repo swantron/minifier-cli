@@ -3,6 +3,8 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/spf13/cobra"
 	"github.com/swantron/minifier-cli/pkg/session"
@@ -53,7 +55,7 @@ func runTraceStart(cmd *cobra.Command, args []string) {
 	dockerArgs = args
 
 	t := tracer.NewTracer()
-	sess, err := t.Start(imageName, sessionName, dockerArgs)
+	sess, done, err := t.Start(imageName, sessionName, dockerArgs)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error starting trace: %v\n", err)
 		os.Exit(1)
@@ -66,12 +68,18 @@ func runTraceStart(cmd *cobra.Command, args []string) {
 
 	fmt.Printf("Container %s started for trace session '%s'\n", sess.ContainerID, sess.Name)
 	fmt.Printf("Trace log: %s\n", sess.LogFile)
-	fmt.Printf("\nTracer is running in the background. Use 'trace stop --name %s' to stop.\n", sess.Name)
+	fmt.Printf("\nTracer is running. Use 'trace stop --name %s' to stop.\n", sess.Name)
 	fmt.Printf("Or press Ctrl+C to stop tracing (container will keep running).\n")
 
-	// Keep process alive to let goroutine run
-	// User can Ctrl+C to stop, or use trace stop command
-	select {}
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	select {
+	case <-done:
+		fmt.Println("Tracer finished.")
+	case sig := <-sigCh:
+		fmt.Printf("\nReceived %v, stopping tracer (container still running).\n", sig)
+	}
 }
 
 func runTraceStop(cmd *cobra.Command, args []string) {
