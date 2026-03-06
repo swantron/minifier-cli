@@ -7,6 +7,29 @@ import (
 	"path/filepath"
 )
 
+// List returns all active sessions found in the temp directory.
+func List() ([]*Session, error) {
+	pattern := filepath.Join(os.TempDir(), "minifier-session-*.json")
+	paths, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	var sessions []*Session
+	for _, path := range paths {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var sess Session
+		if err := json.Unmarshal(data, &sess); err != nil {
+			continue
+		}
+		sessions = append(sessions, &sess)
+	}
+	return sessions, nil
+}
+
 type Session struct {
 	Name        string `json:"name"`
 	Image       string `json:"image"`
@@ -26,7 +49,7 @@ func Save(sess *Session) error {
 	}
 
 	path := getSessionPath(sess.Name)
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("failed to write session file: %w", err)
 	}
 

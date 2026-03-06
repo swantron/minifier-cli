@@ -102,24 +102,6 @@ func TestTracerStartStop(t *testing.T) {
 	t.Skip("Integration test - requires Docker and takes time")
 }
 
-func TestTracerReadContainerSymlink(t *testing.T) {
-	if !isDockerAvailable() {
-		t.Skip("Docker not available")
-	}
-
-	tracer := NewTracer()
-
-	containerID, err := createTestContainer("alpine:latest")
-	if err != nil {
-		t.Fatalf("Failed to create test container: %v", err)
-	}
-	defer cleanupContainer(containerID)
-
-	// Just verify the function doesn't crash with invalid input
-	_, err = tracer.readContainerSymlink(containerID, "/nonexistent")
-	// Error is expected, just verify it doesn't panic
-}
-
 // Helper functions
 
 func isDockerAvailable() bool {

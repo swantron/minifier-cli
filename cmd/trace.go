@@ -33,6 +33,13 @@ var traceStopCmd = &cobra.Command{
 	Run:   runTraceStop,
 }
 
+var traceListCmd = &cobra.Command{
+	Use:   "list",
+	Short: "List active trace sessions",
+	Long:  `List all trace sessions currently saved in the temp directory.`,
+	Run:   runTraceList,
+}
+
 var (
 	imageName    string
 	sessionName  string
@@ -52,6 +59,7 @@ func init() {
 
 	traceCmd.AddCommand(traceStartCmd)
 	traceCmd.AddCommand(traceStopCmd)
+	traceCmd.AddCommand(traceListCmd)
 }
 
 func runTraceStart(cmd *cobra.Command, args []string) {
@@ -82,6 +90,33 @@ func runTraceStart(cmd *cobra.Command, args []string) {
 		fmt.Println("Tracer finished.")
 	case sig := <-sigCh:
 		fmt.Printf("\nReceived %v, stopping tracer (container still running).\n", sig)
+	}
+}
+
+func runTraceList(cmd *cobra.Command, args []string) {
+	sessions, err := session.List()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error listing sessions: %v\n", err)
+		os.Exit(1)
+	}
+
+	if len(sessions) == 0 {
+		fmt.Println("No active trace sessions.")
+		return
+	}
+
+	fmt.Printf("%-20s  %-35s  %-13s  %s\n", "NAME", "IMAGE", "CONTAINER", "LOG FILE")
+	fmt.Printf("%-20s  %-35s  %-13s  %s\n", "----", "-----", "---------", "--------")
+	for _, sess := range sessions {
+		container := sess.ContainerID
+		if len(container) > 12 {
+			container = container[:12]
+		}
+		image := sess.Image
+		if len(image) > 35 {
+			image = image[:32] + "..."
+		}
+		fmt.Printf("%-20s  %-35s  %-13s  %s\n", sess.Name, image, container, sess.LogFile)
 	}
 }
 

@@ -179,47 +179,31 @@ func (t *Tracer) captureFileAccess(containerID string) ([]string, error) {
 }
 
 func (t *Tracer) captureProcFdFiles(containerID string) ([]string, error) {
-	// Get all PIDs in the container
-	cmd := exec.Command("docker", "exec", containerID, "sh", "-c", "find /proc -maxdepth 1 -type d -name '[0-9]*' 2>/dev/null")
+	// Single exec: find all fd symlinks across all PIDs and resolve them at once.
+	cmd := exec.Command("docker", "exec", containerID, "sh", "-c",
+		`find /proc -maxdepth 3 -path '/proc/[0-9]*/fd/*' -type l 2>/dev/null | xargs readlink 2>/dev/null`)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
 
-	var files []string
 	fileSet := make(map[string]struct{})
-
 	scanner := bufio.NewScanner(strings.NewReader(string(output)))
 	for scanner.Scan() {
-		procDir := scanner.Text()
-		fdDir := procDir + "/fd"
-
-		// Find all file descriptors for this process
-		cmd := exec.Command("docker", "exec", containerID, "sh", "-c",
-			fmt.Sprintf("find %s -type l 2>/dev/null", fdDir))
-		fdOutput, err := cmd.Output()
-		if err != nil {
-			continue
-		}
-
-		fdScanner := bufio.NewScanner(strings.NewReader(string(fdOutput)))
-		for fdScanner.Scan() {
-			fdPath := fdScanner.Text()
-			target, err := t.readContainerSymlink(containerID, fdPath)
-			if err == nil && target != "" &&
-				!strings.HasPrefix(target, "/proc") &&
-				!strings.HasPrefix(target, "/dev") &&
-				!strings.Contains(target, "pipe:") &&
-				!strings.Contains(target, "socket:") {
-				fileSet[target] = struct{}{}
-			}
+		target := strings.TrimSpace(scanner.Text())
+		if target != "" &&
+			!strings.HasPrefix(target, "/proc") &&
+			!strings.HasPrefix(target, "/dev") &&
+			!strings.Contains(target, "pipe:") &&
+			!strings.Contains(target, "socket:") {
+			fileSet[target] = struct{}{}
 		}
 	}
 
+	var files []string
 	for file := range fileSet {
 		files = append(files, file)
 	}
-
 	return files, nil
 }
 
