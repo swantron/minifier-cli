@@ -513,7 +513,7 @@ func TestAnalyzerPermissionDenied(t *testing.T) {
 	if err := os.WriteFile(restrictedFile, []byte("secret"), 0000); err != nil {
 		t.Fatalf("Failed to create restricted file: %v", err)
 	}
-	defer os.Chmod(restrictedFile, 0644) // Cleanup
+	defer func() { _ = os.Chmod(restrictedFile, 0644) }() // Cleanup
 
 	logFile := filepath.Join(tempDir, "restricted.log")
 	content := restrictedFile + "\n/etc/passwd\n"

@@ -51,7 +51,7 @@ func (t *Tracer) Start(image, name string, dockerArgs []string) (*session.Sessio
 	containerID := strings.TrimSpace(string(output))
 
 	if err := os.WriteFile(logFile, []byte{}, 0600); err != nil {
-		exec.Command("docker", "rm", "-f", containerID).Run()
+		_ = exec.Command("docker", "rm", "-f", containerID).Run()
 		return nil, nil, fmt.Errorf("failed to create log file: %w", err)
 	}
 
@@ -127,7 +127,7 @@ func (t *Tracer) traceContainer(containerID, logFile string) {
 
 				if _, seen := seenFiles[filePath]; !seen {
 					seenFiles[filePath] = struct{}{}
-					writer.WriteString(filePath + "\n")
+					_, _ = writer.WriteString(filePath + "\n")
 					newFiles++
 				}
 			}
@@ -231,15 +231,6 @@ func (t *Tracer) captureProcMapsFiles(containerID string) ([]string, error) {
 	return files, nil
 }
 
-func (t *Tracer) readContainerSymlink(containerID, path string) (string, error) {
-	cmd := exec.Command("docker", "exec", containerID, "readlink", path)
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-
-	return strings.TrimSpace(string(output)), nil
-}
 
 func (t *Tracer) captureLsofFiles(containerID string) ([]string, error) {
 	cmd := exec.Command("docker", "exec", containerID, "sh", "-c", "lsof -F n 2>/dev/null | grep '^n/' | cut -c2-")

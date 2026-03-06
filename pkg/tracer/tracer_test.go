@@ -119,7 +119,7 @@ func createTestContainer(image string) (string, error) {
 }
 
 func cleanupContainer(containerID string) {
-	exec.Command("docker", "rm", "-f", containerID).Run()
+	_ = exec.Command("docker", "rm", "-f", containerID).Run()
 }
 
 func tempFile(t *testing.T) string {

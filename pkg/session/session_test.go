@@ -17,7 +17,7 @@ func TestSessionSaveAndLoad(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to save session: %v", err)
 	}
-	defer Delete("test-session")
+	defer func() { _ = Delete("test-session") }()
 
 	loaded, err := Load("test-session")
 	if err != nil {
@@ -51,7 +51,9 @@ func TestSessionDelete(t *testing.T) {
 		LogFile:     "/tmp/delete-test.log",
 	}
 
-	Save(sess)
+	if err := Save(sess); err != nil {
+		t.Fatalf("Failed to save session: %v", err)
+	}
 
 	err := Delete("delete-test")
 	if err != nil {

@@ -38,7 +38,7 @@ func NewRepackager() *Repackager {
 
 func randomSuffix() string {
 	b := make([]byte, 4)
-	rand.Read(b)
+	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
 }
 
@@ -55,7 +55,7 @@ func (r *Repackager) Repackage(sourceImage, outputImage string, manifest *analyz
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("failed to create temporary container: %w", err)
 	}
-	defer exec.Command("docker", "rm", containerName).Run()
+	defer func() { _ = exec.Command("docker", "rm", containerName).Run() }()
 
 	filesDir := filepath.Join(tempDir, "files")
 	if err := os.MkdirAll(filesDir, 0755); err != nil {
@@ -98,7 +98,9 @@ func (r *Repackager) Repackage(sourceImage, outputImage string, manifest *analyz
 	}
 	if len(newFiles) > 0 {
 		fmt.Printf("Resolved %d additional dependencies via ELF analysis\n", len(newFiles))
-		r.copyFiles(containerName, newFiles, filesDir)
+		if _, _, err := r.copyFiles(containerName, newFiles, filesDir); err != nil {
+			fmt.Fprintf(os.Stderr, "Warning: ELF dependency copy incomplete: %v\n", err)
+		}
 	}
 
 	metadata, err := r.extractMetadata(sourceImage)
@@ -155,7 +157,7 @@ func (r *Repackager) copyFiles(containerName string, files []string, destDir str
 			break
 		}
 		if tarErr != nil {
-			cmd.Wait()
+			_ = cmd.Wait()
 			return copied, nil, fmt.Errorf("error reading tar stream: %w", tarErr)
 		}
 
@@ -187,7 +189,10 @@ func (r *Repackager) copyFiles(containerName string, files []string, destDir str
 			if openErr != nil {
 				continue
 			}
-			io.Copy(f, tr)
+			if _, err := io.Copy(f, tr); err != nil {
+				f.Close()
+				continue
+			}
 			f.Close()
 			copied++
 		case tar.TypeSymlink:
@@ -215,7 +220,7 @@ func (r *Repackager) copyFiles(containerName string, files []string, destDir str
 					srcFile.Close()
 					continue
 				}
-				io.Copy(dstFile, srcFile)
+				_, _ = io.Copy(dstFile, srcFile)
 				srcFile.Close()
 				dstFile.Close()
 			}

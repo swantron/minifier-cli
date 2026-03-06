@@ -51,11 +51,11 @@ func init() {
 	traceStartCmd.Flags().StringVar(&imageName, "image", "", "Container image to trace (required)")
 	traceStartCmd.Flags().StringVar(&sessionName, "name", "", "Session name for this trace (required)")
 	traceStartCmd.Flags().DurationVar(&traceTimeout, "timeout", 5*time.Minute, "Maximum trace duration")
-	traceStartCmd.MarkFlagRequired("image")
-	traceStartCmd.MarkFlagRequired("name")
+	_ = traceStartCmd.MarkFlagRequired("image")
+	_ = traceStartCmd.MarkFlagRequired("name")
 
 	traceStopCmd.Flags().StringVar(&sessionName, "name", "", "Session name to stop (required)")
-	traceStopCmd.MarkFlagRequired("name")
+	_ = traceStopCmd.MarkFlagRequired("name")
 
 	traceCmd.AddCommand(traceStartCmd)
 	traceCmd.AddCommand(traceStopCmd)

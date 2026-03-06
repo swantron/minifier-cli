@@ -29,7 +29,7 @@ func init() {
 	repackageCmd.Flags().StringVar(&logFile, "log-file", "", "Path to trace log file (mutually exclusive with --name)")
 	repackageCmd.Flags().StringVar(&sourceImageFlag, "source-image", "", "Source image to copy files from (required with --log-file)")
 	repackageCmd.Flags().StringVar(&outputImage, "output", "", "Output image name:tag (required)")
-	repackageCmd.MarkFlagRequired("output")
+	_ = repackageCmd.MarkFlagRequired("output")
 }
 
 func runRepackage(cmd *cobra.Command, args []string) {
