@@ -20,7 +20,7 @@ func TestExtractMetadata(t *testing.T) {
 	r := NewRepackager()
 
 	// Pull alpine to ensure it exists
-	exec.Command("docker", "pull", "alpine:latest").Run()
+	_ = exec.Command("docker", "pull", "alpine:latest").Run()
 
 	// Use a real image that should be available
 	metadata, err := r.extractMetadata("alpine:latest")
@@ -208,7 +208,7 @@ func TestRepackageIntegration(t *testing.T) {
 	}
 
 	// Clean up
-	exec.Command("docker", "rmi", "test-minified:latest").Run()
+	_ = exec.Command("docker", "rmi", "test-minified:latest").Run()
 }
 
 func TestImageMetadataJSONParsing(t *testing.T) {

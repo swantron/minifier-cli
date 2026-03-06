@@ -231,7 +231,6 @@ func (t *Tracer) captureProcMapsFiles(containerID string) ([]string, error) {
 	return files, nil
 }
 
-
 func (t *Tracer) captureLsofFiles(containerID string) ([]string, error) {
 	cmd := exec.Command("docker", "exec", containerID, "sh", "-c", "lsof -F n 2>/dev/null | grep '^n/' | cut -c2-")
 	output, err := cmd.Output()

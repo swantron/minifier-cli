@@ -1,7 +1,6 @@
 package tracer
 
 import (
-	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -54,7 +53,7 @@ func TestTracerIsContainerRunning(t *testing.T) {
 	}
 
 	// Test with non-existent container
-	running, err = tracer.isContainerRunning("nonexistent")
+	_, err = tracer.isContainerRunning("nonexistent")
 	if err == nil {
 		t.Error("Expected error for non-existent container")
 	}
@@ -120,14 +119,4 @@ func createTestContainer(image string) (string, error) {
 
 func cleanupContainer(containerID string) {
 	_ = exec.Command("docker", "rm", "-f", containerID).Run()
-}
-
-func tempFile(t *testing.T) string {
-	f, err := os.CreateTemp("", "tracer-test-*.log")
-	if err != nil {
-		t.Fatalf("Failed to create temp file: %v", err)
-	}
-	path := f.Name()
-	f.Close()
-	return path
 }

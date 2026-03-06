@@ -181,7 +181,7 @@ func (r *Repackager) copyFiles(containerName string, files []string, destDir str
 			if mkErr := os.MkdirAll(destPath, os.FileMode(header.Mode)|0111); mkErr == nil {
 				copied++
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if mkErr := os.MkdirAll(filepath.Dir(destPath), 0755); mkErr != nil {
 				continue
 			}
