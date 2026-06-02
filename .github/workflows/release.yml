@@ -18,7 +18,7 @@ jobs:
       contents: write
     steps:
       - name: Check out code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
@@ -31,9 +31,10 @@ jobs:
           git push origin ${{ github.event.inputs.version }}
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+          cache: false
 
       - name: Build Linux AMD64
         run: GOOS=linux GOARCH=amd64 go build -o minifier-cli-linux-amd64 .
