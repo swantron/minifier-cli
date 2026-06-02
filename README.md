@@ -124,7 +124,7 @@ minifier-cli repackage --name legacy --output legacy-app:minimal
 ### Build from Source
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/swantron/minifier-cli
 cd minifier-cli
 go build -o minifier-cli .
 ```
@@ -271,9 +271,9 @@ minifier-cli repackage \
   --output minified-image:latest
 ```
 
-## How It Works
+## How It Works (Summary)
 
-1. **eBPF Tracing**: Attaches to kernel syscalls (`sys_enter_openat`, `sys_enter_execve`) to capture all file accesses
+1. **Userspace Tracing**: Polls `/proc/*/fd` and `/proc/*/maps` every second to capture all file accesses from within the running container
 2. **Dependency Resolution**: Resolves symlinks, ELF binary dependencies, and adds essential system files
 3. **Image Repackaging**: Copies traced files from the original image and builds a new minimal image from scratch
 
@@ -314,11 +314,11 @@ minifier-cli/
 
 ## License
 
-Proprietary - All rights reserved.
+MIT — see [LICENSE](LICENSE).
 
 ## Contributing
 
-This is a private project.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## Testing
 

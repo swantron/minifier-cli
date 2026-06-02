@@ -87,28 +87,21 @@ EOF
 
 ## Expected Behavior
 
-### Current Implementation Status
+### What Works
 
-✅ **Working:**
 - CLI command parsing and help text
 - Session management (save/load/delete)
 - Docker container lifecycle (start/stop)
-- Trace log file creation
-- Analyzer reading trace logs
-- Basic dependency resolution
-- Repackager Dockerfile generation
-
-⚠️ **Stubbed/Incomplete:**
-- eBPF tracing (container starts but no actual file tracing)
-- ELF binary dependency analysis
-- Symlink resolution requires actual filesystem access
+- Live file access tracing via `/proc/fd` polling
+- ELF binary dependency analysis and recursive resolution
+- Symlink resolution
+- Repackager with full Docker metadata preservation
 
 ### Testing on Linux
 
-For full eBPF functionality, test on Linux:
+The tracer requires Linux (it reads `/proc` from within the container). Run with the required capabilities:
 
 ```bash
-# Run with required capabilities
 sudo ./minifier-cli trace start \
   --image your-image:tag \
   --name test-session \
@@ -142,7 +135,7 @@ docker rm -f minifier-test
 ```
 
 ### Empty trace log
-If the trace log is empty, this is expected in the current implementation as actual eBPF tracing is not yet implemented. The tool will still work with manually created trace logs.
+If the trace log is empty, ensure the tracer ran long enough for the container to access files, and that the container was running (not immediately exiting). You can also supply a manually created trace log via `--log-file`.
 
 ## CI/CD Testing
 
