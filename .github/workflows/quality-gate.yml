@@ -1,0 +1,35 @@
+name: Quality Gate
+
+# Delta coverage gate via the difftron Action (github.com/marketplace/actions/difftron-delta-coverage-gate).
+# Holds the lines changed in a PR to a coverage threshold and posts a sticky comment.
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  pull-requests: write # lets difftron post a results comment
+
+jobs:
+  delta-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history so difftron can diff against the base branch
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test with coverage
+        run: go test -coverprofile=coverage.out ./...
+
+      - uses: swantron/difftron@v1
+        with:
+          coverage: coverage.out
+          threshold: '80'
+          comment-pr: 'true'
+          # Report-only for now: comments without blocking merges.
+          # Flip to 'true' once this repo's changed-line coverage is where you want it.
+          fail-on-error: 'false'
